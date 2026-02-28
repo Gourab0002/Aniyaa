@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">Aniyaa</string>
+    <string name="search_hint">Search torrents...</string>
+    <string name="no_results">No results found</string>
+    <string name="error_network">Network error. Please check your connection.</string>
+    <string name="seeders">Seeders</string>
+    <string name="leechers">Leechers</string>
+    <string name="downloads">Downloads</string>
+    <string name="size">Size</string>
+    <string name="date">Date</string>
+    <string name="filter">Filter</string>
+    <string name="sort">Sort</string>
+    <string name="category">Category</string>
+    <string name="open_magnet">Open Magnet</string>
+    <string name="download_torrent">Download .torrent</string>
+    <string name="copy_magnet">Copy Magnet Link</string>
+    <string name="share">Share</string>
+    <string name="trusted">Trusted</string>
+    <string name="remake">Remake</string>
+    <string name="comments">Comments</string>
+    <string name="info_hash">Info Hash</string>
+    <string name="ascending">Ascending</string>
+    <string name="descending">Descending</string>
+    <string name="apply">Apply</string>
+    <string name="reset">Reset</string>
+    <string name="search">Search</string>
+</resources>
