@@ -254,10 +254,10 @@ fun TorrentDetailScreen(
 
                     OutlinedButton(
                         onClick = {
-                            val shareText = "${torrent.title}\n\n" +
+                            val textToShare = "${torrent.title}\n\n" +
                                 (if (torrent.magnetLink.isNotEmpty()) "Magnet: ${torrent.magnetLink}\n" else "") +
                                 (if (torrent.guid.isNotEmpty()) "Page: ${torrent.guid}" else "")
-                            shareText(shareText)
+                            shareText(textToShare)
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
