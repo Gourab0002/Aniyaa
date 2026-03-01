@@ -5,6 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,13 +50,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
@@ -255,11 +263,7 @@ fun TorrentDetailScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = commentsState.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        HtmlContent(html = commentsState.description)
                     }
                 }
             }
@@ -449,12 +453,72 @@ private fun CommentItem(comment: TorrentComment) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = comment.content,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        HtmlContent(html = comment.content)
     }
+}
+
+@Composable
+private fun HtmlContent(html: String, modifier: Modifier = Modifier) {
+    var heightPx by remember { mutableIntStateOf(1) }
+    val density = LocalDensity.current
+    val isDarkTheme = isSystemInDarkTheme()
+    val textColor = if (isDarkTheme) "#E6E1E5" else "#1C1B1F"
+    val linkColor = if (isDarkTheme) "#D0BCFF" else "#6750A4"
+    val codeBg = if (isDarkTheme) "#2D2D2D" else "#F3EFF4"
+    val borderColor = if (isDarkTheme) "#555555" else "#CCCCCC"
+    val fullHtml = """<!DOCTYPE html><html><head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { color: $textColor; background: transparent; font-family: sans-serif;
+                   font-size: 14px; margin: 0; padding: 0; word-wrap: break-word; }
+            img { max-width: 100%; height: auto; display: block; margin: 4px 0; }
+            a { color: $linkColor; }
+            pre { background: $codeBg; overflow-x: auto; padding: 8px;
+                  border-radius: 4px; margin: 4px 0; }
+            code { background: $codeBg; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+            table { border-collapse: collapse; width: 100%; }
+            td, th { border: 1px solid $borderColor; padding: 4px 8px; }
+            p:first-child { margin-top: 0; } p:last-child { margin-bottom: 0; }
+        </style></head><body>$html</body></html>"""
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                settings.apply {
+                    javaScriptEnabled = true
+                    loadWithOverviewMode = true
+                    useWideViewPort = true
+                    setSupportZoom(false)
+                    builtInZoomControls = false
+                    displayZoomControls = false
+                    allowFileAccess = false
+                    allowContentAccess = false
+                }
+                isScrollContainer = false
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String) {
+                        view.evaluateJavascript("document.body.scrollHeight") { result ->
+                            val measured = result?.toIntOrNull() ?: 0
+                            if (measured > 0) heightPx = measured
+                        }
+                    }
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView, request: WebResourceRequest
+                    ): Boolean {
+                        val intent = Intent(Intent.ACTION_VIEW, request.url)
+                        view.context.startActivity(intent)
+                        return true
+                    }
+                }
+            }
+        },
+        modifier = modifier.fillMaxWidth().height(with(density) { heightPx.toDp() }),
+        update = { webView ->
+            webView.loadDataWithBaseURL(
+                "https://nyaa.si", fullHtml, "text/html", "UTF-8", null
+            )
+        }
+    )
 }
 
 @Composable

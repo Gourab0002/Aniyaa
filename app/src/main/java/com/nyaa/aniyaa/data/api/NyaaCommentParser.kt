@@ -11,14 +11,14 @@ object NyaaCommentParser {
 
         // Parse description from div#torrent-description
         val descriptionEl = doc.selectFirst("div#torrent-description")
-        val description = descriptionEl?.text()?.trim() ?: ""
+        val description = descriptionEl?.html()?.trim() ?: ""
 
         // nyaa.si comment structure:
         // <div class="comment" id="com-XXXXX">
         //   <div class="comment-details">
         //     <img src="..." />      (optional avatar)
         //     <a href="/user/...">username</a>
-        //     - 2024-01-01 00:00:00 UTC
+        //     <small>2024-01-01 00:00:00 UTC</small>
         //   </div>
         //   <div class="comment-content markdown-rendered">
         //     <p>...</p>
@@ -30,12 +30,17 @@ object NyaaCommentParser {
             val id = element.id().removePrefix("com-")
             val details = element.selectFirst("div.comment-details") ?: continue
             val username = details.selectFirst("a")?.text()?.trim() ?: "Anonymous"
-            val avatarUrl = details.selectFirst("img")?.attr("src") ?: ""
-            val detailsText = details.text()
-            // Date is typically after " - " in the details text
-            val date = detailsText.substringAfter("- ").trim()
+            val avatarSrc = details.selectFirst("img")?.attr("src") ?: ""
+            val avatarUrl = when {
+                avatarSrc.startsWith("//") -> "https:$avatarSrc"
+                avatarSrc.startsWith("/") -> "https://nyaa.si$avatarSrc"
+                else -> avatarSrc
+            }
+            // Date is in a <small> tag; fall back to text after " - " for older layouts
+            val date = details.selectFirst("small")?.text()?.trim()
+                ?: details.text().substringAfter("- ").trim()
             val contentEl = element.selectFirst("div.comment-content")
-            val content = contentEl?.text()?.trim() ?: ""
+            val content = contentEl?.html()?.trim() ?: ""
             if (content.isNotEmpty()) {
                 comments.add(TorrentComment(id = id, username = username, avatarUrl = avatarUrl, date = date, content = content))
             }
