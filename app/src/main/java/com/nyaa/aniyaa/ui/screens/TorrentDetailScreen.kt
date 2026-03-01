@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.text.method.LinkMovementMethod
+import android.widget.TextView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,8 +53,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
@@ -62,6 +66,11 @@ import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 import com.nyaa.aniyaa.ui.viewmodel.CommentsViewModel
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.image.ImagesPlugin
+import io.noties.markwon.linkify.LinkifyPlugin
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -255,11 +264,7 @@ fun TorrentDetailScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = commentsState.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        MarkdownContent(markdown = commentsState.description)
                     }
                 }
             }
@@ -449,12 +454,36 @@ private fun CommentItem(comment: TorrentComment) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = comment.content,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        MarkdownContent(markdown = comment.content)
     }
+}
+
+@Composable
+private fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
+    val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
+    val markwon = remember(context) {
+        Markwon.builder(context)
+            .usePlugin(ImagesPlugin.create())
+            .usePlugin(TablePlugin.create(context))
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(LinkifyPlugin.create(true))
+            .build()
+    }
+    AndroidView(
+        factory = { ctx ->
+            TextView(ctx).apply {
+                movementMethod = LinkMovementMethod.getInstance()
+            }
+        },
+        modifier = modifier.fillMaxWidth(),
+        update = { textView ->
+            textView.setTextColor(textColor)
+            textView.textSize = textSizeSp
+            markwon.setMarkdown(textView, markdown)
+        }
+    )
 }
 
 @Composable
