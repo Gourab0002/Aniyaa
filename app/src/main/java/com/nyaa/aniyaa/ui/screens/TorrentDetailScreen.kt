@@ -95,8 +95,12 @@ fun TorrentDetailScreen(
     }
 
     fun downloadTorrent(downloadUrl: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
-        context.startActivity(intent)
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            scope.launch { snackbarHostState.showSnackbar("Could not open download link: ${e.message}") }
+        }
     }
 
     fun shareText(text: String) {
@@ -237,6 +241,25 @@ fun TorrentDetailScreen(
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))
                         InfoRow(label = "Info Hash", value = torrent.infoHash)
+                    }
+                }
+            }
+
+            // Description card
+            if (commentsState.description.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Description",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = commentsState.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }

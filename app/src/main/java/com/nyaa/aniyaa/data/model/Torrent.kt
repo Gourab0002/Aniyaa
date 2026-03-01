@@ -72,3 +72,8 @@ data class TorrentComment(
     val date: String,
     val content: String
 )
+
+data class TorrentPageData(
+    val description: String,
+    val comments: List<TorrentComment>
+)

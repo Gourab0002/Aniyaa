@@ -4,7 +4,7 @@ import com.nyaa.aniyaa.data.api.NyaaCommentParser
 import com.nyaa.aniyaa.data.api.NyaaRssParser
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
-import com.nyaa.aniyaa.data.model.TorrentComment
+import com.nyaa.aniyaa.data.model.TorrentPageData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -40,7 +40,7 @@ class NyaaRepository {
         }
     }
 
-    suspend fun fetchComments(torrentId: String): Result<List<TorrentComment>> {
+    suspend fun fetchTorrentPageData(torrentId: String): Result<TorrentPageData> {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "https://nyaa.si/view/$torrentId"
@@ -53,8 +53,8 @@ class NyaaRepository {
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val html = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response"))
-                    val comments = NyaaCommentParser.parse(html)
-                    Result.success(comments)
+                    val pageData = NyaaCommentParser.parse(html)
+                    Result.success(pageData)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
                 }
