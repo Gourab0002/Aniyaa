@@ -3,26 +3,32 @@ package com.nyaa.aniyaa.data.api
 import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import org.jsoup.Jsoup
-import org.jsoup.safety.Safelist
 
 object NyaaCommentParser {
 
     fun parse(html: String): TorrentPageData {
         val doc = Jsoup.parse(html)
 
-        // Parse description from div#torrent-description
+        // div#torrent-description stores raw markdown text (HTML-escaped, &#10; for newlines).
+        // Jsoup's .text() decodes entities back to plain text, giving us the raw markdown.
         val descriptionEl = doc.selectFirst("div#torrent-description")
-        val description = descriptionEl?.html()?.trim()
-            ?.let { raw -> if (raw.isEmpty()) "" else Jsoup.clean(raw, "https://nyaa.si", Safelist.relaxed()) }
-            ?: ""
+        val description = descriptionEl?.text()?.trim() ?: ""
 
-        // nyaa.si real comment structure (verified against Nyaa-Api-Go/Nyaa-Api-Ts):
-        // <div class="comment-panel">
-        //   <a href="/user/username">username</a>
-        //   <a href="#com-XXXXX"><time datetime="...">timestamp</time></a>
-        //   <img class="avatar" src="..." />
-        //   <div class="comment-body">
-        //     <div class="comment-content markdown-rendered">...</div>
+        // nyaa.si real comment structure (from nyaa open-source view.html + Nyaa-Api-Go/Ts):
+        // <div class="comment-panel panel-default" id="com-N">
+        //   <div class="panel-body">
+        //     <div class="col-md-2">
+        //       <a href="/user/username">username</a>
+        //       <img class="avatar" src="..." />
+        //     </div>
+        //     <div class="col-md-10 comment">
+        //       <div class="row comment-details">
+        //         <a href="#com-N"><small data-timestamp-swap>timestamp</small></a>
+        //       </div>
+        //       <div class="row comment-body">
+        //         <div markdown-text class="comment-content">raw markdown text</div>
+        //       </div>
+        //     </div>
         //   </div>
         // </div>
         val comments = mutableListOf<TorrentComment>()
@@ -36,15 +42,19 @@ object NyaaCommentParser {
                 avatarSrc.startsWith("/") -> "https://nyaa.si$avatarSrc"
                 else -> avatarSrc
             }
-            // Timestamp lives inside a <time> child of one of the <a> elements
+            // Timestamp is inside a <small> child of the anchor in div.comment-details.
+            // Find("a").children().first() matches the <small> inside the timestamp <a>.
             val date = links.asSequence()
                 .flatMap { it.children().asSequence() }
                 .firstOrNull()
                 ?.text()?.trim() ?: ""
+            // comment-content also stores raw markdown text — use .text() same as description
             val contentEl = element.selectFirst("div.comment-body div.comment-content")
-            val content = contentEl?.html()?.trim() ?: ""
+            val content = contentEl?.text()?.trim() ?: ""
+            // comment-panel has id="com-N" (loop index assigned by nyaa)
+            val id = element.attr("id").removePrefix("com-")
             if (content.isNotEmpty()) {
-                comments.add(TorrentComment(id = "", username = username, avatarUrl = avatarUrl, date = date, content = content))
+                comments.add(TorrentComment(id = id, username = username, avatarUrl = avatarUrl, date = date, content = content))
             }
         }
         return TorrentPageData(description = description, comments = comments)
