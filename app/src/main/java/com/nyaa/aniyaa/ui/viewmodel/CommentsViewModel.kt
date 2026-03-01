@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class CommentsUiState(
+    val description: String = "",
     val comments: List<TorrentComment> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -28,13 +29,13 @@ class CommentsViewModel : ViewModel() {
         if (_uiState.value.hasFetched) return
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            val result = repository.fetchComments(torrentId)
+            val result = repository.fetchTorrentPageData(torrentId)
             result.fold(
-                onSuccess = { comments ->
-                    _uiState.update { it.copy(isLoading = false, comments = comments, hasFetched = true) }
+                onSuccess = { pageData ->
+                    _uiState.update { it.copy(isLoading = false, description = pageData.description, comments = pageData.comments, hasFetched = true) }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load comments", hasFetched = true) }
+                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load details", hasFetched = true) }
                 }
             )
         }

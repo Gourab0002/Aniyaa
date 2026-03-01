@@ -1,13 +1,17 @@
 package com.nyaa.aniyaa.data.api
 
 import com.nyaa.aniyaa.data.model.TorrentComment
+import com.nyaa.aniyaa.data.model.TorrentPageData
 import org.jsoup.Jsoup
 
 object NyaaCommentParser {
 
-    fun parse(html: String): List<TorrentComment> {
+    fun parse(html: String): TorrentPageData {
         val doc = Jsoup.parse(html)
-        val comments = mutableListOf<TorrentComment>()
+
+        // Parse description from div#torrent-description
+        val descriptionEl = doc.selectFirst("div#torrent-description")
+        val description = descriptionEl?.text()?.trim() ?: ""
 
         // nyaa.si comment structure:
         // <div class="comment" id="com-XXXXX">
@@ -20,6 +24,7 @@ object NyaaCommentParser {
         //     <p>...</p>
         //   </div>
         // </div>
+        val comments = mutableListOf<TorrentComment>()
         val commentElements = doc.select("div.comment[id^=com-]")
         for (element in commentElements) {
             val id = element.id().removePrefix("com-")
@@ -35,6 +40,6 @@ object NyaaCommentParser {
                 comments.add(TorrentComment(id = id, username = username, avatarUrl = avatarUrl, date = date, content = content))
             }
         }
-        return comments
+        return TorrentPageData(description = description, comments = comments)
     }
 }

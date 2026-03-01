@@ -1,12 +1,10 @@
 package com.nyaa.aniyaa.ui.screens
 
-import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Environment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -96,22 +94,12 @@ fun TorrentDetailScreen(
         scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
     }
 
-    fun downloadTorrent(downloadUrl: String, torrentId: String, title: String) {
-        val fileName = "$torrentId.torrent"
+    fun downloadTorrent(downloadUrl: String) {
         try {
-            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
-                setTitle(title)
-                setDescription("Downloading torrent file")
-                setMimeType("application/x-bittorrent")
-                addRequestHeader("User-Agent", "Aniyaa/1.0 (Android)")
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            }
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            dm.enqueue(request)
-            scope.launch { snackbarHostState.showSnackbar("Downloading $fileName") }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
+            context.startActivity(intent)
         } catch (e: Exception) {
-            scope.launch { snackbarHostState.showSnackbar("Failed to start download: ${e.message}") }
+            scope.launch { snackbarHostState.showSnackbar("Could not open download link: ${e.message}") }
         }
     }
 
@@ -257,6 +245,25 @@ fun TorrentDetailScreen(
                 }
             }
 
+            // Description card
+            if (commentsState.description.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Description",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = commentsState.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
             // Action buttons
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -292,7 +299,7 @@ fun TorrentDetailScreen(
 
                     if (torrent.link.isNotEmpty()) {
                         FilledTonalButton(
-                            onClick = { downloadTorrent(torrent.link, torrent.id, torrent.title) },
+                            onClick = { downloadTorrent(torrent.link) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -355,13 +362,41 @@ fun TorrentDetailScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )
+                            if (torrent.guid.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { openUrl(torrent.guid) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("View comments in browser")
+                                }
+                            }
                         }
                         commentsState.comments.isEmpty() && commentsState.hasFetched -> {
-                            Text(
-                                text = "No comments to display",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
+                            if (torrent.comments > 0 && torrent.guid.isNotEmpty()) {
+                                Text(
+                                    text = "Comments could not be loaded in-app",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { openUrl(torrent.guid) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("View comments in browser")
+                                }
+                            } else {
+                                Text(
+                                    text = "No comments to display",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
                         }
                         else -> {
                             commentsState.comments.forEachIndexed { index, comment ->

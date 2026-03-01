@@ -4,7 +4,7 @@ import com.nyaa.aniyaa.data.api.NyaaCommentParser
 import com.nyaa.aniyaa.data.api.NyaaRssParser
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
-import com.nyaa.aniyaa.data.model.TorrentComment
+import com.nyaa.aniyaa.data.model.TorrentPageData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -40,19 +40,21 @@ class NyaaRepository {
         }
     }
 
-    suspend fun fetchComments(torrentId: String): Result<List<TorrentComment>> {
+    suspend fun fetchTorrentPageData(torrentId: String): Result<TorrentPageData> {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "https://nyaa.si/view/$torrentId"
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Aniyaa/1.0 (Android)")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.5")
                     .build()
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val html = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response"))
-                    val comments = NyaaCommentParser.parse(html)
-                    Result.success(comments)
+                    val pageData = NyaaCommentParser.parse(html)
+                    Result.success(pageData)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
                 }
