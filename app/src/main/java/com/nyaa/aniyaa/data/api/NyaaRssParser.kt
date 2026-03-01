@@ -44,6 +44,7 @@ object NyaaRssParser {
         var trusted = false
         var remake = false
         var currentTag = ""
+        var currentNamespace = ""
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             val namespace = parser.namespace ?: ""
@@ -52,6 +53,7 @@ object NyaaRssParser {
             when (eventType) {
                 XmlPullParser.START_TAG -> {
                     currentTag = name
+                    currentNamespace = namespace
                     if (name == "item") {
                         inItem = true
                         id = ""
@@ -77,22 +79,22 @@ object NyaaRssParser {
                     if (inItem) {
                         val text = parser.text?.trim() ?: ""
                         when {
-                            currentTag == "title" && namespace.isEmpty() -> title = text
-                            currentTag == "link" && namespace.isEmpty() && link.isEmpty() -> link = text
+                            currentTag == "title" && currentNamespace.isEmpty() -> title = text
+                            currentTag == "link" && currentNamespace.isEmpty() && link.isEmpty() -> link = text
                             currentTag == "guid" -> {
                                 guid = text
                                 id = text.substringAfterLast("/")
                             }
                             currentTag == "pubDate" -> pubDate = text
-                            currentTag == "seeders" && namespace.contains("nyaa") -> seeders = text.toIntOrNull() ?: 0
-                            currentTag == "leechers" && namespace.contains("nyaa") -> leechers = text.toIntOrNull() ?: 0
-                            currentTag == "downloads" && namespace.contains("nyaa") -> downloads = text.toIntOrNull() ?: 0
-                            currentTag == "infoHash" && namespace.contains("nyaa") -> infoHash = text
-                            currentTag == "category" && namespace.contains("nyaa") -> category = text
-                            currentTag == "size" && namespace.contains("nyaa") -> size = text
-                            currentTag == "comments" && namespace.contains("nyaa") -> comments = text.toIntOrNull() ?: 0
-                            currentTag == "trusted" && namespace.contains("nyaa") -> trusted = text.equals("Yes", ignoreCase = true)
-                            currentTag == "remake" && namespace.contains("nyaa") -> remake = text.equals("Yes", ignoreCase = true)
+                            currentTag == "seeders" && currentNamespace.contains("nyaa") -> seeders = text.toIntOrNull() ?: 0
+                            currentTag == "leechers" && currentNamespace.contains("nyaa") -> leechers = text.toIntOrNull() ?: 0
+                            currentTag == "downloads" && currentNamespace.contains("nyaa") -> downloads = text.toIntOrNull() ?: 0
+                            currentTag == "infoHash" && currentNamespace.contains("nyaa") -> infoHash = text
+                            currentTag == "category" && currentNamespace.contains("nyaa") -> category = text
+                            currentTag == "size" && currentNamespace.contains("nyaa") -> size = text
+                            currentTag == "comments" && currentNamespace.contains("nyaa") -> comments = text.toIntOrNull() ?: 0
+                            currentTag == "trusted" && currentNamespace.contains("nyaa") -> trusted = text.equals("Yes", ignoreCase = true)
+                            currentTag == "remake" && currentNamespace.contains("nyaa") -> remake = text.equals("Yes", ignoreCase = true)
                         }
                     }
                 }
@@ -121,6 +123,7 @@ object NyaaRssParser {
                         )
                     }
                     currentTag = ""
+                    currentNamespace = ""
                 }
             }
             eventType = parser.next()

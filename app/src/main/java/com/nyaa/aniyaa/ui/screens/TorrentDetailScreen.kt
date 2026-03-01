@@ -1,10 +1,12 @@
 package com.nyaa.aniyaa.ui.screens
 
+import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,6 +75,25 @@ fun TorrentDetailScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
         scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
+    }
+
+    fun downloadTorrent(url: String, title: String) {
+        val rawName = url.substringAfterLast("/").substringBefore("?")
+        val fileName = if (rawName.endsWith(".torrent")) rawName else "$rawName.torrent"
+        try {
+            val request = DownloadManager.Request(Uri.parse(url)).apply {
+                setTitle(title)
+                setDescription("Downloading torrent file")
+                setMimeType("application/x-bittorrent")
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            }
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            scope.launch { snackbarHostState.showSnackbar("Downloading $fileName") }
+        } catch (e: Exception) {
+            scope.launch { snackbarHostState.showSnackbar("Failed to start download: ${e.message}") }
+        }
     }
 
     fun shareText(text: String) {
@@ -243,7 +264,7 @@ fun TorrentDetailScreen(
 
                     if (torrent.link.isNotEmpty()) {
                         FilledTonalButton(
-                            onClick = { openUrl(torrent.link) },
+                            onClick = { downloadTorrent(torrent.link, torrent.title) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
