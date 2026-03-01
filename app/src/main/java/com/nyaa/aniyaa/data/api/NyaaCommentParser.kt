@@ -3,6 +3,7 @@ package com.nyaa.aniyaa.data.api
 import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import org.jsoup.Jsoup
+import org.jsoup.safety.Safelist
 
 object NyaaCommentParser {
 
@@ -11,38 +12,39 @@ object NyaaCommentParser {
 
         // Parse description from div#torrent-description
         val descriptionEl = doc.selectFirst("div#torrent-description")
-        val description = descriptionEl?.html()?.trim() ?: ""
+        val description = descriptionEl?.html()?.trim()
+            ?.let { raw -> if (raw.isEmpty()) "" else Jsoup.clean(raw, "https://nyaa.si", Safelist.relaxed()) }
+            ?: ""
 
-        // nyaa.si comment structure:
-        // <div class="comment" id="com-XXXXX">
-        //   <div class="comment-details">
-        //     <img src="..." />      (optional avatar)
-        //     <a href="/user/...">username</a>
-        //     <small>2024-01-01 00:00:00 UTC</small>
-        //   </div>
-        //   <div class="comment-content markdown-rendered">
-        //     <p>...</p>
+        // nyaa.si real comment structure (verified against Nyaa-Api-Go/Nyaa-Api-Ts):
+        // <div class="comment-panel">
+        //   <a href="/user/username">username</a>
+        //   <a href="#com-XXXXX"><time datetime="...">timestamp</time></a>
+        //   <img class="avatar" src="..." />
+        //   <div class="comment-body">
+        //     <div class="comment-content markdown-rendered">...</div>
         //   </div>
         // </div>
         val comments = mutableListOf<TorrentComment>()
-        val commentElements = doc.select("div.comment[id^=com-]")
+        val commentElements = doc.select("div#comments div.comment-panel")
         for (element in commentElements) {
-            val id = element.id().removePrefix("com-")
-            val details = element.selectFirst("div.comment-details") ?: continue
-            val username = details.selectFirst("a")?.text()?.trim() ?: "Anonymous"
-            val avatarSrc = details.selectFirst("img")?.attr("src") ?: ""
+            val links = element.select("a")
+            val username = links.firstOrNull()?.text()?.trim() ?: "Anonymous"
+            val avatarSrc = element.selectFirst("img.avatar")?.attr("src") ?: ""
             val avatarUrl = when {
                 avatarSrc.startsWith("//") -> "https:$avatarSrc"
                 avatarSrc.startsWith("/") -> "https://nyaa.si$avatarSrc"
                 else -> avatarSrc
             }
-            // Date is in a <small> tag; fall back to text after " - " for older layouts
-            val date = details.selectFirst("small")?.text()?.trim()
-                ?: details.text().substringAfter("- ").trim()
-            val contentEl = element.selectFirst("div.comment-content")
+            // Timestamp lives inside a <time> child of one of the <a> elements
+            val date = links.asSequence()
+                .flatMap { it.children().asSequence() }
+                .firstOrNull()
+                ?.text()?.trim() ?: ""
+            val contentEl = element.selectFirst("div.comment-body div.comment-content")
             val content = contentEl?.html()?.trim() ?: ""
             if (content.isNotEmpty()) {
-                comments.add(TorrentComment(id = id, username = username, avatarUrl = avatarUrl, date = date, content = content))
+                comments.add(TorrentComment(id = "", username = username, avatarUrl = avatarUrl, date = date, content = content))
             }
         }
         return TorrentPageData(description = description, comments = comments)
