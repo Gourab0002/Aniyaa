@@ -21,6 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Link
@@ -42,6 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -49,22 +53,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
+import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TorrentDetailScreen(
     torrent: Torrent,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    bookmarkViewModel: BookmarkViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val bookmarks by bookmarkViewModel.bookmarks.collectAsState()
+    val isBookmarked = bookmarks.any { it.id == torrent.id }
 
     fun openUrl(url: String) {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -77,14 +86,15 @@ fun TorrentDetailScreen(
         scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
     }
 
-    fun downloadTorrent(url: String, title: String) {
-        val rawName = url.substringAfterLast("/").substringBefore("?")
-        val fileName = if (rawName.endsWith(".torrent")) rawName else "$rawName.torrent"
+    fun downloadTorrent(torrentId: String, title: String) {
+        val fileName = "$torrentId.torrent"
+        val downloadUrl = "https://nyaa.si/download/$fileName"
         try {
-            val request = DownloadManager.Request(Uri.parse(url)).apply {
+            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
                 setTitle(title)
                 setDescription("Downloading torrent file")
                 setMimeType("application/x-bittorrent")
+                addRequestHeader("User-Agent", "Aniyaa/1.0 (Android)")
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             }
@@ -111,6 +121,15 @@ fun TorrentDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { bookmarkViewModel.toggleBookmark(torrent) }) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
+                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -262,9 +281,9 @@ fun TorrentDetailScreen(
                         }
                     }
 
-                    if (torrent.link.isNotEmpty()) {
+                    if (torrent.id.isNotEmpty()) {
                         FilledTonalButton(
-                            onClick = { downloadTorrent(torrent.link, torrent.title) },
+                            onClick = { downloadTorrent(torrent.id, torrent.title) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
