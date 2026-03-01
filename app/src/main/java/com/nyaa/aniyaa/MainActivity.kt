@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -71,7 +72,7 @@ fun AniyaaApp(
     onThemeSelected: (Int) -> Unit
 ) {
     val navController = rememberNavController()
-    var selectedTorrent by remember { mutableStateOf<Torrent?>(null) }
+    var selectedTorrent by rememberSaveable { mutableStateOf<Torrent?>(null) }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
