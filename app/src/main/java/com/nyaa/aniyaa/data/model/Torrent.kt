@@ -1,5 +1,9 @@
 package com.nyaa.aniyaa.data.model
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class Torrent(
     val id: String,
     val title: String,
@@ -16,7 +20,7 @@ data class Torrent(
     val trusted: Boolean,
     val remake: Boolean,
     val magnetLink: String
-)
+) : Parcelable
 
 enum class SortField(val value: String, val displayName: String) {
     DATE("id", "Date"),
