@@ -10,9 +10,9 @@ object NyaaCommentParser {
         val doc = Jsoup.parse(html)
 
         // div#torrent-description stores raw markdown text (HTML-escaped, &#10; for newlines).
-        // Jsoup's .text() decodes entities back to plain text, giving us the raw markdown.
+        // Use .wholeText() to preserve newlines required for markdown tables and paragraphs.
         val descriptionEl = doc.selectFirst("div#torrent-description")
-        val description = descriptionEl?.text()?.trim() ?: ""
+        val description = descriptionEl?.wholeText()?.trim() ?: ""
 
         // nyaa.si real comment structure (from nyaa open-source view.html + Nyaa-Api-Go/Ts):
         // <div class="comment-panel panel-default" id="com-N">
@@ -48,9 +48,10 @@ object NyaaCommentParser {
                 .flatMap { it.children().asSequence() }
                 .firstOrNull()
                 ?.text()?.trim() ?: ""
-            // comment-content also stores raw markdown text — use .text() same as description
+            // comment-content also stores raw markdown text — use .wholeText() to preserve
+            // newlines for tables and paragraphs, same as description
             val contentEl = element.selectFirst("div.comment-body div.comment-content")
-            val content = contentEl?.text()?.trim() ?: ""
+            val content = contentEl?.wholeText()?.trim() ?: ""
             // comment-panel has id="com-N" (loop index assigned by nyaa)
             val id = element.attr("id").removePrefix("com-")
             if (content.isNotEmpty()) {
