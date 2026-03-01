@@ -93,7 +93,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SearchScreen(
     onTorrentClick: (Torrent) -> Unit,
-    viewModel: SearchViewModel = viewModel()
+    viewModel: SearchViewModel = viewModel(),
+    bottomPadding: Dp = 0.dp
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -218,8 +219,10 @@ fun SearchScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 12.dp,
-                            vertical = 8.dp
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 8.dp,
+                            bottom = 8.dp + bottomPadding
                         )
                     ) {
                         items(uiState.torrents, key = { "${it.id}|${it.infoHash}" }) { torrent ->

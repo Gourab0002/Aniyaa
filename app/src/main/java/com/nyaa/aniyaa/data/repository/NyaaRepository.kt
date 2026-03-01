@@ -1,8 +1,10 @@
 package com.nyaa.aniyaa.data.repository
 
+import com.nyaa.aniyaa.data.api.NyaaCommentParser
 import com.nyaa.aniyaa.data.api.NyaaRssParser
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.data.model.TorrentComment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -29,6 +31,28 @@ class NyaaRepository {
                     val body = response.body ?: return@withContext Result.failure(Exception("Empty response"))
                     val torrents = NyaaRssParser.parse(body.byteStream())
                     Result.success(torrents)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun fetchComments(torrentId: String): Result<List<TorrentComment>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "https://nyaa.si/view/$torrentId"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Aniyaa/1.0 (Android)")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val html = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response"))
+                    val comments = NyaaCommentParser.parse(html)
+                    Result.success(comments)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
                 }

@@ -34,6 +34,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.Torrent
@@ -43,7 +44,8 @@ import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 @Composable
 fun BookmarksScreen(
     onTorrentClick: (Torrent) -> Unit,
-    bookmarkViewModel: BookmarkViewModel = viewModel()
+    bookmarkViewModel: BookmarkViewModel = viewModel(),
+    bottomPadding: Dp = 0.dp
 ) {
     val bookmarks by bookmarkViewModel.bookmarks.collectAsState()
 
@@ -91,8 +93,10 @@ fun BookmarksScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 12.dp,
-                        vertical = 8.dp
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 8.dp,
+                        bottom = 8.dp + bottomPadding
                     )
                 ) {
                     items(bookmarks, key = { "${it.id}|${it.infoHash}" }) { torrent ->

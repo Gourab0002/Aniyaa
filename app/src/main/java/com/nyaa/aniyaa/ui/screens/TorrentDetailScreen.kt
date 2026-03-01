@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,11 +57,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
+import com.nyaa.aniyaa.ui.viewmodel.CommentsViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,13 +71,21 @@ import kotlinx.coroutines.launch
 fun TorrentDetailScreen(
     torrent: Torrent,
     onNavigateBack: () -> Unit,
-    bookmarkViewModel: BookmarkViewModel = viewModel()
+    bookmarkViewModel: BookmarkViewModel = viewModel(),
+    commentsViewModel: CommentsViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val bookmarks by bookmarkViewModel.bookmarks.collectAsState()
     val isBookmarked = bookmarks.any { it.id == torrent.id }
+    val commentsState by commentsViewModel.uiState.collectAsState()
+
+    LaunchedEffect(torrent.id) {
+        if (torrent.comments > 0) {
+            commentsViewModel.fetchComments(torrent.id)
+        }
+    }
 
     fun openUrl(url: String) {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -318,7 +330,100 @@ fun TorrentDetailScreen(
                     }
                 }
             }
+
+            // Comments card
+            if (torrent.comments > 0) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        Text(
+                            text = "Comments (${torrent.comments})",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        when {
+                            commentsState.isLoading -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .align(Alignment.CenterHorizontally)
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            commentsState.error != null -> {
+                                Text(
+                                    text = "Could not load comments",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            commentsState.comments.isEmpty() && commentsState.hasFetched -> {
+                                Text(
+                                    text = "No comments to display",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            else -> {
+                                commentsState.comments.forEachIndexed { index, comment ->
+                                    CommentItem(comment = comment)
+                                    if (index < commentsState.comments.lastIndex) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun CommentItem(comment: TorrentComment) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(32.dp)
+            ) {
+                androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = comment.username.take(1).uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+            Column {
+                Text(
+                    text = comment.username,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = comment.date,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = comment.content,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
