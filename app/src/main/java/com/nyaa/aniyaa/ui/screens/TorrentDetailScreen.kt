@@ -82,9 +82,7 @@ fun TorrentDetailScreen(
     val commentsState by commentsViewModel.uiState.collectAsState()
 
     LaunchedEffect(torrent.id) {
-        if (torrent.comments > 0) {
-            commentsViewModel.fetchComments(torrent.id)
-        }
+        commentsViewModel.fetchComments(torrent.id)
     }
 
     fun openUrl(url: String) {
@@ -98,9 +96,8 @@ fun TorrentDetailScreen(
         scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
     }
 
-    fun downloadTorrent(torrentId: String, title: String) {
+    fun downloadTorrent(downloadUrl: String, torrentId: String, title: String) {
         val fileName = "$torrentId.torrent"
-        val downloadUrl = "https://nyaa.si/download/$fileName"
         try {
             val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
                 setTitle(title)
@@ -293,9 +290,9 @@ fun TorrentDetailScreen(
                         }
                     }
 
-                    if (torrent.id.isNotEmpty()) {
+                    if (torrent.link.isNotEmpty()) {
                         FilledTonalButton(
-                            onClick = { downloadTorrent(torrent.id, torrent.title) },
+                            onClick = { downloadTorrent(torrent.link, torrent.id, torrent.title) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -332,47 +329,45 @@ fun TorrentDetailScreen(
             }
 
             // Comments card
-            if (torrent.comments > 0) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
-                    ) {
-                        Text(
-                            text = "Comments (${torrent.comments})",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        when {
-                            commentsState.isLoading -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .align(Alignment.CenterHorizontally)
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            commentsState.error != null -> {
-                                Text(
-                                    text = "Could not load comments",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                            commentsState.comments.isEmpty() && commentsState.hasFetched -> {
-                                Text(
-                                    text = "No comments to display",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                            else -> {
-                                commentsState.comments.forEachIndexed { index, comment ->
-                                    CommentItem(comment = comment)
-                                    if (index < commentsState.comments.lastIndex) {
-                                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                                    }
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    Text(
+                        text = "Comments",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    when {
+                        commentsState.isLoading -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .align(Alignment.CenterHorizontally)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        commentsState.error != null -> {
+                            Text(
+                                text = "Could not load comments",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        commentsState.comments.isEmpty() && commentsState.hasFetched -> {
+                            Text(
+                                text = "No comments to display",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        else -> {
+                            commentsState.comments.forEachIndexed { index, comment ->
+                                CommentItem(comment = comment)
+                                if (index < commentsState.comments.lastIndex) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                                 }
                             }
                         }
