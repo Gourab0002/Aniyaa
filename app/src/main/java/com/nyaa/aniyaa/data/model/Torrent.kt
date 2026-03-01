@@ -64,3 +64,11 @@ data class SearchParams(
     val sortOrder: SortOrder = SortOrder.DESC,
     val page: Int = 1
 )
+
+data class TorrentComment(
+    val id: String,
+    val username: String,
+    val avatarUrl: String,
+    val date: String,
+    val content: String
+)

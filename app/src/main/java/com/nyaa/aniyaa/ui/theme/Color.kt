@@ -18,3 +18,24 @@ val NyaaTrusted = Color(0xFF43A047)
 val NyaaRemake = Color(0xFFE53935)
 val NyaaSeeder = Color(0xFF4CAF50)
 val NyaaLeecher = Color(0xFFF44336)
+
+// Dark variants for custom themes
+val Purple80Dark = Color(0xFFD0BCFF)
+val PurpleGrey80Dark = Color(0xFFCCC2DC)
+val Pink80Dark = Color(0xFFEFB8C8)
+
+val NyaaBlue80 = Color(0xFF8EC7FF)
+val NyaaBlueGrey80 = Color(0xFFB0BEC5)
+val NyaaTeal80 = Color(0xFF80CBC4)
+
+val Sakura80 = Color(0xFFFFADD7)
+val SakuraGrey80 = Color(0xFFE8A0B4)
+val SakuraPink80 = Color(0xFFFFCDD2)
+
+val Matcha80 = Color(0xFFA5D6A7)
+val MatchaGrey80 = Color(0xFF90A4AE)
+val MatchaLight80 = Color(0xFFC8E6C9)
+
+val Sunset80 = Color(0xFFFFAB91)
+val SunsetGrey80 = Color(0xFFBCAAA4)
+val SunsetLight80 = Color(0xFFFFCCBC)
