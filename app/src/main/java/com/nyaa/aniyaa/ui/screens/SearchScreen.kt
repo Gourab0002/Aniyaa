@@ -273,6 +273,10 @@ fun FilterBottomSheetContent(
     onReset: () -> Unit,
     onApply: () -> Unit
 ) {
+    var tempCategory by remember(key1 = searchParams) { mutableStateOf(searchParams.category) }
+    var tempFilter by remember(key1 = searchParams) { mutableStateOf(searchParams.filter) }
+    var tempSortField by remember(key1 = searchParams) { mutableStateOf(searchParams.sortField) }
+    var tempSortOrder by remember(key1 = searchParams) { mutableStateOf(searchParams.sortOrder) }
     var categoryExpanded by remember { mutableStateOf(false) }
 
     Column(
@@ -296,7 +300,7 @@ fun FilterBottomSheetContent(
         )
         Box {
             OutlinedTextField(
-                value = searchParams.category.displayName,
+                value = tempCategory.displayName,
                 onValueChange = {},
                 readOnly = true,
                 modifier = Modifier
@@ -323,7 +327,7 @@ fun FilterBottomSheetContent(
                     DropdownMenuItem(
                         text = { Text(category.displayName) },
                         onClick = {
-                            onCategoryChange(category)
+                            tempCategory = category
                             categoryExpanded = false
                         }
                     )
@@ -343,8 +347,8 @@ fun FilterBottomSheetContent(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterOption.entries.forEach { option ->
                 FilterChip(
-                    selected = searchParams.filter == option,
-                    onClick = { onFilterChange(option) },
+                    selected = tempFilter == option,
+                    onClick = { tempFilter = option },
                     label = { Text(option.displayName) }
                 )
             }
@@ -362,8 +366,8 @@ fun FilterBottomSheetContent(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SortField.entries.forEach { field ->
                 FilterChip(
-                    selected = searchParams.sortField == field,
-                    onClick = { onSortFieldChange(field) },
+                    selected = tempSortField == field,
+                    onClick = { tempSortField = field },
                     label = { Text(field.displayName) }
                 )
             }
@@ -381,8 +385,8 @@ fun FilterBottomSheetContent(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SortOrder.entries.forEach { order ->
                 FilterChip(
-                    selected = searchParams.sortOrder == order,
-                    onClick = { onSortOrderChange(order) },
+                    selected = tempSortOrder == order,
+                    onClick = { tempSortOrder = order },
                     label = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -405,13 +409,25 @@ fun FilterBottomSheetContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TextButton(
-                onClick = onReset,
+                onClick = {
+                    tempCategory = CATEGORIES[0]
+                    tempFilter = FilterOption.ALL
+                    tempSortField = SortField.DATE
+                    tempSortOrder = SortOrder.DESC
+                    onReset()
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Reset")
             }
             Button(
-                onClick = onApply,
+                onClick = {
+                    onCategoryChange(tempCategory)
+                    onFilterChange(tempFilter)
+                    onSortFieldChange(tempSortField)
+                    onSortOrderChange(tempSortOrder)
+                    onApply()
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Apply & Search")

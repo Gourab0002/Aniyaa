@@ -3,6 +3,8 @@ package com.nyaa.aniyaa.data.repository
 import com.nyaa.aniyaa.data.api.NyaaCommentParser
 import com.nyaa.aniyaa.data.api.NyaaRssParser
 import com.nyaa.aniyaa.data.model.SearchParams
+import com.nyaa.aniyaa.data.model.SortField
+import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +12,33 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
+
+internal fun parseSizeToBytes(size: String): Long {
+    val parts = size.trim().split(" ")
+    if (parts.size < 2) return 0L
+    val value = parts[0].toDoubleOrNull() ?: return 0L
+    return when (parts[1].uppercase()) {
+        "B", "BYTES" -> value.toLong()
+        "KIB" -> (value * 1024).toLong()
+        "MIB" -> (value * 1024 * 1024).toLong()
+        "GIB" -> (value * 1024 * 1024 * 1024).toLong()
+        "TIB" -> (value * 1024L * 1024 * 1024 * 1024).toLong()
+        else -> 0L
+    }
+}
+
+internal fun sortTorrents(torrents: List<Torrent>, params: SearchParams): List<Torrent> {
+    val sorted = when (params.sortField) {
+        // Torrent IDs are sequential integers on nyaa.si, so numeric sort equals chronological sort
+        SortField.DATE -> torrents.sortedBy { it.id.toLongOrNull() ?: 0L }
+        SortField.SEEDERS -> torrents.sortedBy { it.seeders }
+        SortField.LEECHERS -> torrents.sortedBy { it.leechers }
+        SortField.SIZE -> torrents.sortedBy { parseSizeToBytes(it.size) }
+        SortField.DOWNLOADS -> torrents.sortedBy { it.downloads }
+        SortField.COMMENTS -> torrents.sortedBy { it.comments }
+    }
+    return if (params.sortOrder == SortOrder.DESC) sorted.reversed() else sorted
+}
 
 class NyaaRepository {
 
@@ -30,7 +59,7 @@ class NyaaRepository {
                 if (response.isSuccessful) {
                     val body = response.body ?: return@withContext Result.failure(Exception("Empty response"))
                     val torrents = NyaaRssParser.parse(body.byteStream())
-                    Result.success(torrents)
+                    Result.success(sortTorrents(torrents, params))
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
                 }
