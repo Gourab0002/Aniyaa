@@ -10,6 +10,8 @@ import android.widget.TextView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,12 +61,14 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
+import com.nyaa.aniyaa.data.model.TorrentFileEntry
 import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
@@ -78,7 +82,7 @@ import io.noties.markwon.image.ImagesPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TorrentDetailScreen(
     torrent: Torrent,
@@ -274,72 +278,76 @@ fun TorrentDetailScreen(
                 }
             }
 
-            // Action buttons
+            // File list card
+            if (commentsState.fileList.isNotEmpty()) {
+                FileListCard(fileList = commentsState.fileList)
+            }
+
+            // Action buttons (compact 2-column layout)
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "Actions",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(Modifier.height(4.dp))
-
-                    if (torrent.magnetLink.isNotEmpty()) {
-                        FilledTonalButton(
-                            onClick = { openUrl(torrent.magnetLink) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Open Magnet Link")
-                        }
-
-                        OutlinedButton(
-                            onClick = { copyToClipboard(torrent.magnetLink, "Magnet Link") },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Copy Magnet Link")
-                        }
-                    }
-
-                    if (torrent.link.isNotEmpty()) {
-                        FilledTonalButton(
-                            onClick = { downloadTorrent(torrent.link) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Download .torrent")
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            val textToShare = "${torrent.title}\n\n" +
-                                (if (torrent.magnetLink.isNotEmpty()) "Magnet: ${torrent.magnetLink}\n" else "") +
-                                (if (torrent.guid.isNotEmpty()) "Page: ${torrent.guid}" else "")
-                            shareText(textToShare)
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                    Spacer(Modifier.height(12.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 2
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Share")
-                    }
-                    
-                    if (torrent.guid.isNotEmpty()) {
+                        if (torrent.magnetLink.isNotEmpty()) {
+                            FilledTonalButton(
+                                onClick = { openUrl(torrent.magnetLink) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Magnet", maxLines = 1)
+                            }
+                            OutlinedButton(
+                                onClick = { copyToClipboard(torrent.magnetLink, "Magnet Link") },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Copy Magnet", maxLines = 1)
+                            }
+                        }
+                        if (torrent.link.isNotEmpty()) {
+                            FilledTonalButton(
+                                onClick = { downloadTorrent(torrent.link) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Download", maxLines = 1)
+                            }
+                        }
                         OutlinedButton(
-                            onClick = { openUrl(torrent.guid) },
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = {
+                                val textToShare = "${torrent.title}\n\n" +
+                                    (if (torrent.magnetLink.isNotEmpty()) "Magnet: ${torrent.magnetLink}\n" else "") +
+                                    (if (torrent.guid.isNotEmpty()) "Page: ${torrent.guid}" else "")
+                                shareText(textToShare)
+                            },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("View on nyaa.si")
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Share", maxLines = 1)
+                        }
+                        if (torrent.guid.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = { openUrl(torrent.guid) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("View on nyaa", maxLines = 1)
+                            }
                         }
                     }
                 }
@@ -539,5 +547,51 @@ private fun InfoRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
+    }
+}
+
+@Composable
+private fun FileListCard(fileList: List<TorrentFileEntry>) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "File List (${fileList.size})",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            fileList.forEachIndexed { index, file ->
+                FileListItem(file = file)
+                if (index < fileList.lastIndex) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileListItem(file: TorrentFileEntry) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = file.name,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (file.size.isNotEmpty()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = file.size,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }

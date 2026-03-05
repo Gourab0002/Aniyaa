@@ -77,7 +77,13 @@ data class TorrentComment(
     val content: String
 )
 
+data class TorrentFileEntry(
+    val name: String,
+    val size: String
+)
+
 data class TorrentPageData(
     val description: String,
+    val fileList: List<TorrentFileEntry>,
     val comments: List<TorrentComment>
 )
