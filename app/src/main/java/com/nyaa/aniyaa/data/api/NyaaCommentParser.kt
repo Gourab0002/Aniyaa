@@ -1,6 +1,7 @@
 package com.nyaa.aniyaa.data.api
 
 import com.nyaa.aniyaa.data.model.TorrentComment
+import com.nyaa.aniyaa.data.model.TorrentFileEntry
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import org.jsoup.Jsoup
 
@@ -58,6 +59,36 @@ object NyaaCommentParser {
                 comments.add(TorrentComment(id = id, username = username, avatarUrl = avatarUrl, date = date, content = content))
             }
         }
-        return TorrentPageData(description = description, comments = comments)
+
+        // nyaa.si file list structure (from nyaa open-source view.html):
+        // <div class="torrent-file-list panel panel-danger">
+        //   <p class="panel-heading">File list</p>
+        //   <ul>
+        //     <li class="torrent-file-list-folder">
+        //       folderName
+        //       <ul>
+        //         <li>filename.ext <span class="pull-right">800.0 MiB</span></li>
+        //       </ul>
+        //     </li>
+        //     <li>filename.ext <span class="pull-right">200.0 MiB</span></li>
+        //   </ul>
+        // </div>
+        // Use li:not(:has(ul)) to select only leaf (file) entries, skipping folder <li>s.
+        val fileEntries = mutableListOf<TorrentFileEntry>()
+        val fileListEl = doc.selectFirst("div.torrent-file-list")
+        if (fileListEl != null) {
+            val fileLis = fileListEl.select("li:not(:has(ul))")
+            for (li in fileLis) {
+                val size = li.selectFirst("span.pull-right")?.text()?.trim() ?: ""
+                val liClone = li.clone()
+                liClone.selectFirst("span.pull-right")?.remove()
+                val name = liClone.text().trim()
+                if (name.isNotEmpty()) {
+                    fileEntries.add(TorrentFileEntry(name = name, size = size))
+                }
+            }
+        }
+
+        return TorrentPageData(description = description, fileList = fileEntries, comments = comments)
     }
 }
