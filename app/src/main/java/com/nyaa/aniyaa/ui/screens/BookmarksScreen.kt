@@ -1,6 +1,8 @@
 package com.nyaa.aniyaa.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,14 +17,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -34,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,12 +57,19 @@ fun BookmarksScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Bookmarks") },
+                title = {
+                    Text(
+                        "Bookmarks",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -69,23 +81,32 @@ fun BookmarksScreen(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Default.Bookmark,
-                        contentDescription = null,
-                        modifier = Modifier.size(80.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
-                    Spacer(Modifier.height(16.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(88.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.BookmarkBorder,
+                                contentDescription = null,
+                                modifier = Modifier.size(44.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(24.dp))
                     Text(
                         text = "No bookmarks yet",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "Bookmark torrents to find them here",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             } else {
@@ -93,8 +114,8 @@ fun BookmarksScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 12.dp,
-                        end = 12.dp,
+                        start = 16.dp,
+                        end = 16.dp,
                         top = 8.dp,
                         bottom = 8.dp + bottomPadding
                     )
@@ -110,7 +131,11 @@ fun BookmarksScreen(
                         )
                         AnimatedVisibility(
                             visible = true,
-                            enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
+                            enter = fadeIn(
+                                spring(stiffness = Spring.StiffnessLow)
+                            ) + slideInVertically(
+                                spring(stiffness = Spring.StiffnessLow)
+                            ) { it / 3 },
                             exit = fadeOut(tween(200))
                         ) {
                             SwipeToDismissBox(
@@ -120,12 +145,18 @@ fun BookmarksScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.CenterEnd
                                     ) {
-                                        IconButton(onClick = { bookmarkViewModel.removeBookmark(torrent.id) }) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Remove bookmark",
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.errorContainer,
+                                            modifier = Modifier.padding(end = 16.dp)
+                                        ) {
+                                            IconButton(onClick = { bookmarkViewModel.removeBookmark(torrent.id) }) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Remove bookmark",
+                                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                                )
+                                            }
                                         }
                                     }
                                 }

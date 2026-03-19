@@ -2,6 +2,7 @@ package com.nyaa.aniyaa.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// Default Purple theme
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)
 val Pink80 = Color(0xFFEFB8C8)
@@ -19,11 +20,7 @@ val NyaaRemake = Color(0xFFE53935)
 val NyaaSeeder = Color(0xFF4CAF50)
 val NyaaLeecher = Color(0xFFF44336)
 
-// Dark variants for custom themes
-val Purple80Dark = Color(0xFFD0BCFF)
-val PurpleGrey80Dark = Color(0xFFCCC2DC)
-val Pink80Dark = Color(0xFFEFB8C8)
-
+// Dark theme variants
 val NyaaBlue80 = Color(0xFF8EC7FF)
 val NyaaBlueGrey80 = Color(0xFFB0BEC5)
 val NyaaTeal80 = Color(0xFF80CBC4)
