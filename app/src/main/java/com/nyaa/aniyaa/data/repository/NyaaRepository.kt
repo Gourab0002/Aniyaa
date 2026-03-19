@@ -102,6 +102,9 @@ class NyaaRepository {
         sb.append("&f=${params.filter.value}")
         sb.append("&s=${params.sortField.value}")
         sb.append("&o=${params.sortOrder.value}")
+        if (params.page > 1) {
+            sb.append("&p=${params.page}")
+        }
         return sb.toString()
     }
 }

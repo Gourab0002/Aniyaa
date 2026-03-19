@@ -59,6 +59,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -214,6 +215,21 @@ fun SearchScreen(
                 }
                 else -> {
                     val listState = rememberLazyListState()
+
+                    val shouldLoadMore by remember {
+                        derivedStateOf {
+                            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                            val totalItems = listState.layoutInfo.totalItemsCount
+                            lastVisibleItem >= totalItems - 3
+                        }
+                    }
+
+                    LaunchedEffect(shouldLoadMore, uiState.isLoadingMore) {
+                        if (shouldLoadMore && !uiState.isLoadingMore) {
+                            viewModel.loadNextPage()
+                        }
+                    }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -231,6 +247,18 @@ fun SearchScreen(
                                 enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 }
                             ) {
                                 TorrentCard(torrent = torrent, onClick = { onTorrentClick(torrent) })
+                            }
+                        }
+                        if (uiState.isLoadingMore) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                                }
                             }
                         }
                     }
