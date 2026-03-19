@@ -509,16 +509,19 @@ fun TorrentDetailScreen(
 
 @Composable
 private fun CommentItem(comment: TorrentComment) {
+    val avatarSize = 36.dp
+    val avatarSpacing = 10.dp
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(avatarSpacing)
         ) {
-            Box(modifier = Modifier.size(36.dp)) {
+            Box(modifier = Modifier.size(avatarSize)) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(avatarSize)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
@@ -535,7 +538,7 @@ private fun CommentItem(comment: TorrentComment) {
                         contentDescription = "${comment.username}'s avatar",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(avatarSize)
                             .clip(CircleShape)
                     )
                 }
@@ -557,7 +560,7 @@ private fun CommentItem(comment: TorrentComment) {
         Spacer(Modifier.height(8.dp))
         MarkdownContent(
             markdown = comment.content,
-            modifier = Modifier.padding(start = 46.dp)
+            modifier = Modifier.padding(start = avatarSize + avatarSpacing)
         )
     }
 }
