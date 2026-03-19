@@ -124,62 +124,64 @@ fun SearchScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    OutlinedTextField(
-                        value = uiState.query,
-                        onValueChange = viewModel::updateQuery,
-                        placeholder = {
-                            Text(
-                                "Search nyaa.si...",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            keyboardController?.hide()
-                            viewModel.search()
-                        }),
-                        trailingIcon = {
-                            if (uiState.query.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.updateQuery("") }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Clear",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            cursorColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                },
-                actions = {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.padding(end = 4.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        IconButton(onClick = { showFilterSheet = true }) {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = "Filter",
-                                tint = MaterialTheme.colorScheme.primary
+                        OutlinedTextField(
+                            value = uiState.query,
+                            onValueChange = viewModel::updateQuery,
+                            placeholder = {
+                                Text(
+                                    "Search nyaa.si...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                keyboardController?.hide()
+                                viewModel.search()
+                            }),
+                            trailingIcon = {
+                                if (uiState.query.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.updateQuery("") }) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                cursorColor = MaterialTheme.colorScheme.primary
                             )
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            IconButton(onClick = { showFilterSheet = true }) {
+                                Icon(
+                                    Icons.Default.FilterList,
+                                    contentDescription = "Filter",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 },
