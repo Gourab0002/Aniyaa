@@ -20,6 +20,8 @@ data class SearchUiState(
     val query: String = "",
     val torrents: List<Torrent> = emptyList(),
     val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val canLoadMore: Boolean = true,
     val error: String? = null,
     val searchParams: SearchParams = SearchParams(),
     val hasSearched: Boolean = false
@@ -61,16 +63,42 @@ class SearchViewModel : ViewModel() {
     }
 
     fun search() {
-        val params = _uiState.value.searchParams
+        val params = _uiState.value.searchParams.copy(page = 1)
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, searchParams = params, canLoadMore = true) }
             val result = repository.search(params)
             result.fold(
                 onSuccess = { torrents ->
-                    _uiState.update { it.copy(isLoading = false, torrents = torrents, hasSearched = true) }
+                    _uiState.update { it.copy(isLoading = false, torrents = torrents, hasSearched = true, canLoadMore = torrents.isNotEmpty()) }
                 },
                 onFailure = { e ->
                     _uiState.update { it.copy(isLoading = false, error = e.message ?: "Unknown error", hasSearched = true) }
+                }
+            )
+        }
+    }
+
+    fun loadNextPage() {
+        val state = _uiState.value
+        if (state.isLoading || state.isLoadingMore || !state.canLoadMore) return
+        val nextPage = state.searchParams.page + 1
+        val params = state.searchParams.copy(page = nextPage)
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingMore = true, error = null) }
+            val result = repository.search(params)
+            result.fold(
+                onSuccess = { torrents ->
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMore = false,
+                            torrents = it.torrents + torrents,
+                            searchParams = params,
+                            canLoadMore = torrents.isNotEmpty()
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update { it.copy(isLoadingMore = false, error = e.message ?: "Unknown error") }
                 }
             )
         }
