@@ -323,11 +323,6 @@ fun TorrentDetailScreen(
                 }
             }
 
-            // File list card
-            if (commentsState.fileList.isNotEmpty()) {
-                FileListCard(fileList = commentsState.fileList)
-            }
-
             // Action buttons
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -408,6 +403,11 @@ fun TorrentDetailScreen(
                         }
                     }
                 }
+            }
+
+            // File list card
+            if (commentsState.fileList.isNotEmpty()) {
+                FileListCard(fileList = commentsState.fileList)
             }
 
             // Comments card
