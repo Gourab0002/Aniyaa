@@ -1,30 +1,38 @@
+<div align="center">
+
+<img src="app/src/main/res/drawable/ic_launcher_image.png" width="96" alt="Aniyaa logo" />
+
 # Aniyaa
 
-A native Android app for searching torrents on [nyaa.si](https://nyaa.si) — the premier tracker for anime, manga, audio, and more. Built with Jetpack Compose and Material 3 for a fast, fluid experience.
+**A native Android client for [nyaa.si](https://nyaa.si)**
+
+[![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![License](https://img.shields.io/badge/License-Open%20Source-brightgreen)](LICENSE)
+
+</div>
+
+---
+
+## Overview
+
+Aniyaa lets you search, filter, and download torrents from nyaa.si — the premier tracker for anime, manga, audio, and more — directly from your Android device. Built with Jetpack Compose and Material 3 for a fast, fluid, and beautiful experience.
 
 ---
 
 ## Features
 
-- **Full-text search** — find any torrent by title or keyword
-- **Category filtering** — narrow results to Anime, Audio, Literature, Live Action, Pictures, Software, and their sub-categories
-- **Quality filter** — show all results, exclude remakes, or display trusted uploads only
-- **Flexible sorting** — sort by Date, Seeders, Leechers, Size, Downloads, or Comments in ascending or descending order
-- **Torrent cards** — each result shows title, category badge, Trusted / Remake status, file size, publish date, seeder count, leecher count, and download count at a glance
-- **Detail screen** — view full torrent metadata plus one-tap actions:
-  - Open magnet link in any torrent client
-  - Copy magnet link to clipboard
-  - Download the `.torrent` file
-  - Share the torrent page or magnet link
-  - Open the torrent page on nyaa.si
-- **Material You** — dynamic color support on Android 12+ adapts to your wallpaper; gracefully falls back to a purple-blue palette on older devices
-- **Edge-to-edge UI** — content draws behind the system bars for a truly immersive layout
-
----
-
-## Screenshots
-
-> _Build the app and run it on a device or emulator to see the UI._
+| | Feature |
+|---|---|
+| 🔍 | **Full-text search** across all of nyaa.si |
+| 🗂️ | **Category filtering** — Anime, Audio, Literature, Live Action, Pictures, Software, and sub-categories |
+| ✅ | **Quality filter** — All · No Remakes · Trusted Only |
+| ↕️ | **Flexible sorting** — by Date, Seeders, Leechers, Size, Downloads, or Comments |
+| 📄 | **Rich torrent cards** — title, category badge, trust status, size, date, seeds, leeches, downloads |
+| 🔗 | **One-tap actions** — open magnet, copy magnet, download `.torrent`, share, or open on nyaa.si |
+| 🎨 | **Material You** — dynamic color on Android 12+, falls back to a purple-blue palette |
+| 📱 | **Edge-to-edge UI** — content flows behind system bars for a fully immersive layout |
 
 ---
 
@@ -34,126 +42,81 @@ A native Android app for searching torrents on [nyaa.si](https://nyaa.si) — th
 |---|---|
 | Language | Kotlin 2.0 |
 | UI | Jetpack Compose + Material 3 |
-| Architecture | MVVM — `ViewModel` + `StateFlow` |
+| Architecture | MVVM · `ViewModel` + `StateFlow` |
 | Navigation | Navigation Compose |
 | Networking | OkHttp 4.12 |
-| XML parsing | Android `XmlPullParser` (no extra deps) |
+| Parsing | `XmlPullParser` (RSS) · Jsoup (HTML) |
+| Markdown | Markwon 4.6.2 |
 | Async | Kotlin Coroutines |
-| Min SDK | 24 (Android 7.0) |
-| Target SDK | 35 (Android 15) |
+| Min / Target SDK | 24 (Android 7.0) / 35 (Android 15) |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Android Studio Hedgehog (2023.1.1)+ **or** JDK 17 with Android SDK (API 35)
+- An internet connection for the first Gradle sync
+
+### Build & Run
+
+```bash
+git clone https://github.com/Gourab0002/Aniyaa.git
+cd Aniyaa
+./gradlew assembleDebug          # APK → app/build/outputs/apk/debug/
+./gradlew installDebug           # build + install on a connected device
+```
+
+Or open the project in Android Studio (**File → Open**), let Gradle sync, and press **Run ▶**.
+
+---
+
+## How It Works
+
+Aniyaa queries the nyaa.si RSS feed:
+
+```
+https://nyaa.si/?page=rss&q=<query>&c=<category>&f=<filter>&s=<sort>&o=<order>
+```
+
+The feed's `nyaa:` namespace fields (seeders, leechers, infoHash, trusted, etc.) are parsed with `XmlPullParser`. Magnet links are assembled from the `infoHash` plus a set of public trackers — no extra client API needed. Torrent detail pages and comments are fetched as HTML and parsed with Jsoup; markdown content is rendered via Markwon.
 
 ---
 
 ## Project Structure
 
 ```
-app/src/main/
-├── java/com/nyaa/aniyaa/
-│   ├── MainActivity.kt              # Entry point, NavHost setup
-│   ├── data/
-│   │   ├── api/
-│   │   │   └── NyaaRssParser.kt     # RSS XML parser + magnet-link builder
-│   │   ├── model/
-│   │   │   └── Torrent.kt           # Data models, enums, SearchParams
-│   │   └── repository/
-│   │       └── NyaaRepository.kt    # OkHttp calls, URL builder
-│   └── ui/
-│       ├── screens/
-│       │   ├── SearchScreen.kt      # Search bar, results list, filter sheet
-│       │   └── TorrentDetailScreen.kt # Full detail + action buttons
-│       ├── theme/
-│       │   ├── Color.kt
-│       │   ├── Theme.kt             # Dynamic color / dark mode support
-│       │   └── Type.kt
-│       └── viewmodel/
-│           └── SearchViewModel.kt   # StateFlow-backed UI state
-└── res/
-    ├── drawable/                    # Adaptive icon foreground
-    ├── mipmap-anydpi-v26/           # Adaptive icon definitions
-    └── values/                      # strings, colors, theme
+app/src/main/java/com/nyaa/aniyaa/
+├── MainActivity.kt              # Entry point, NavHost
+├── data/
+│   ├── api/                     # RSS + HTML parsers
+│   ├── model/                   # Torrent, SearchParams, enums
+│   └── repository/              # OkHttp calls, URL builder
+└── ui/
+    ├── screens/                 # SearchScreen, TorrentDetailScreen
+    ├── theme/                   # Color, Theme, Type
+    └── viewmodel/               # SearchViewModel (StateFlow)
 ```
-
----
-
-## Building
-
-### Prerequisites
-
-- Android Studio Hedgehog (2023.1.1) or newer **or** JDK 17 + Android SDK (API 35)
-- Android SDK Build-Tools 35
-- An internet connection for the first Gradle sync (downloads dependencies)
-
-### Clone & build
-
-```bash
-git clone https://github.com/Gourab0002/Aniyaa.git
-cd Aniyaa
-./gradlew assembleDebug
-```
-
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
-
-### Install directly on a connected device
-
-```bash
-./gradlew installDebug
-```
-
-### Open in Android Studio
-
-1. **File → Open** and select the `Aniyaa` directory.
-2. Wait for the Gradle sync to finish.
-3. Press **Run ▶** or use `Shift+F10`.
-
----
-
-## How It Works
-
-Aniyaa queries the nyaa.si **RSS feed** endpoint:
-
-```
-https://nyaa.si/?page=rss&q=<query>&c=<category>&f=<filter>&s=<sort>&o=<order>
-```
-
-The RSS feed returns standard `<item>` elements extended with `nyaa:` namespace fields (seeders, leechers, downloads, infoHash, size, trusted, remake). `NyaaRssParser` reads the stream with `XmlPullParser` and builds a list of `Torrent` data objects.
-
-Magnet links are assembled from the `infoHash` field and a set of public trackers, so no additional torrent-client API is required.
-
----
-
-## Search Parameters
-
-| Parameter | Options |
-|---|---|
-| **Category** | All, Anime, Anime-AMV, Anime-English, Anime-Non-English, Anime-Raw, Audio, Literature, Live Action, Live Action-English, Live Action-Raw, Pictures, Software |
-| **Filter** | No Filter · No Remakes · Trusted Only |
-| **Sort by** | Date · Seeders · Leechers · Size · Downloads · Comments |
-| **Order** | Descending · Ascending |
-
----
-
-## Permissions
-
-| Permission | Reason |
-|---|---|
-| `INTERNET` | Fetch search results from nyaa.si |
-
-No other permissions are requested.
 
 ---
 
 ## Contributing
 
-1. Fork the repository and create a feature branch.
-2. Make your changes — keep PRs focused and small.
+1. Fork the repo and create a feature branch.
+2. Keep PRs focused and small.
 3. Open a pull request against `main` with a clear description.
 
 ---
 
 ## License
 
-This project is open source. See [LICENSE](LICENSE) for details.
+Open source — see [LICENSE](LICENSE) for details.
 
 ---
 
-> **Disclaimer:** Aniyaa is an unofficial third-party client. It is not affiliated with or endorsed by nyaa.si.
+<div align="center">
+
+> **Disclaimer:** Aniyaa is an unofficial third-party client and is not affiliated with or endorsed by nyaa.si.
+
+</div>
