@@ -180,6 +180,7 @@ fun SearchScreen(
                             )
                         )
                         Surface(
+                            modifier = Modifier.padding(end = 8.dp),
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh
                         ) {
