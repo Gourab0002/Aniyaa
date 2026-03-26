@@ -1,6 +1,7 @@
 package com.nyaa.aniyaa.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nyaa.aniyaa.data.model.CATEGORIES
 import com.nyaa.aniyaa.data.model.Category
@@ -10,6 +11,7 @@ import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.repository.NyaaRepository
+import com.nyaa.aniyaa.data.repository.SearchHistoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,15 +26,25 @@ data class SearchUiState(
     val canLoadMore: Boolean = true,
     val error: String? = null,
     val searchParams: SearchParams = SearchParams(),
-    val hasSearched: Boolean = false
+    val hasSearched: Boolean = false,
+    val history: List<String> = emptyList()
 )
 
-class SearchViewModel : ViewModel() {
+class SearchViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = NyaaRepository()
+    private val historyRepository = SearchHistoryRepository(application)
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+
+    init {
+        loadHistory()
+    }
+
+    private fun loadHistory() {
+        _uiState.update { it.copy(history = historyRepository.getHistory()) }
+    }
 
     fun updateQuery(query: String) {
         _uiState.update { it.copy(query = query, searchParams = it.searchParams.copy(query = query)) }
@@ -66,6 +78,8 @@ class SearchViewModel : ViewModel() {
         val params = _uiState.value.searchParams.copy(page = 1)
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, searchParams = params, canLoadMore = true) }
+            historyRepository.addToHistory(params.query)
+            loadHistory()
             val result = repository.search(params)
             result.fold(
                 onSuccess = { torrents ->
@@ -106,5 +120,15 @@ class SearchViewModel : ViewModel() {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun removeFromHistory(query: String) {
+        historyRepository.removeFromHistory(query)
+        loadHistory()
+    }
+
+    fun clearHistory() {
+        historyRepository.clearHistory()
+        loadHistory()
     }
 }
