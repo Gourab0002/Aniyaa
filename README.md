@@ -4,149 +4,89 @@
 
 # Aniyaa
 
-**A native Android client for [nyaa.si](https://nyaa.si)**
+Search [nyaa.si](https://nyaa.si) from your Android phone — anime, manga, music, and more.
 
-[![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![License](https://img.shields.io/badge/License-Open%20Source-brightgreen)](LICENSE)
+[Download the latest version](https://github.com/Gourab0002/Aniyaa/releases/latest) · Android 7.0 or newer
 
 </div>
 
 ---
 
-## Overview
+## What is Aniyaa?
 
-Aniyaa lets you search, filter, and download torrents from nyaa.si — the premier tracker for anime, manga, audio, and more — directly from your Android device. Built with Jetpack Compose and Material 3 for a fast, fluid, and beautiful experience.
+Aniyaa is a simple Android app for browsing [nyaa.si](https://nyaa.si) without using a web browser. You can search, filter results, save favorites, and send a download to the torrent app you already use.
 
----
-
-## Features
-
-| | Feature |
-|---|---|
-| 🔍 | **Full-text search** across all of nyaa.si, with infinite scroll |
-| 🗂️ | **Category filtering** — Anime, Audio, Literature, Live Action, Pictures, Software, and sub-categories |
-| ✅ | **Quality filter** — All · No Remakes · Trusted Only |
-| ↕️ | **Flexible sorting** — by Date, Seeders, Leechers, Size, Downloads, or Comments |
-| 📄 | **Rich torrent cards** — title, category badge, trust status, size, date, seeds, leeches, downloads |
-| 📝 | **Torrent details** — markdown description, nested file list, and comments |
-| 🔗 | **One-tap actions** — open magnet, copy magnet, download `.torrent`, share, or open on nyaa.si |
-| 🔖 | **Bookmarks** — save listings locally; swipe to remove |
-| 🕘 | **Search history** — last 50 queries, with swipe-to-delete and clear-all |
-| 🎨 | **Material You** — dynamic color on Android 12+, falls back to a purple-blue palette |
-| 📱 | **Edge-to-edge UI** — content flows behind system bars for a fully immersive layout |
-| ⚡ | **120 Hz+** — locks to the display's highest same-resolution refresh rate |
+It is **not** the official nyaa.si app, and it is **not** a torrent downloader. Aniyaa finds listings; your torrent app (such as LibreTorrent, Flud, or qBittorrent) does the actual downloading.
 
 ---
 
-## Tech Stack
+## Download and install
 
-| Layer | Technology |
-|---|---|
-| Language | Kotlin 2.0 |
-| UI | Jetpack Compose + Material 3 |
-| Architecture | MVVM · `ViewModel` + `StateFlow` |
-| Navigation | Navigation Compose |
-| Networking | OkHttp 4.12 |
-| Parsing | `XmlPullParser` (RSS) · Jsoup (HTML) |
-| Markdown | Markwon 4.6.2 |
-| Async | Kotlin Coroutines |
-| Min / Target SDK | 24 (Android 7.0) / 35 (Android 15) |
+1. On your phone, open the **[latest release](https://github.com/Gourab0002/Aniyaa/releases/latest)**.
+2. Tap **Aniyaa-v…apk** to download it.
+3. Open the downloaded file. If Android warns that the app isn’t from the Play Store, choose **Install anyway**. You may need to allow your browser (or Files) to install apps — Android will show a switch for that.
+4. Open **Aniyaa** from your app drawer.
+
+To update later, download a newer APK from the same [Releases](https://github.com/Gourab0002/Aniyaa/releases) page and install it over the old one. You won’t lose bookmarks.
 
 ---
 
-## Getting Started
+## How to use it
 
-### Prerequisites
+**Search**  
+Type in the search bar at the top and press search. More results load as you scroll.
 
-- Android Studio Hedgehog (2023.1.1)+ **or** JDK 17 with Android SDK (API 35)
-- An internet connection for the first Gradle sync
+**Filters**  
+Tap the filter button next to the search bar to narrow by category (Anime, Audio, Literature, and so on), hide remakes, show trusted uploads only, or change how results are sorted.
 
-### Build & Run
+**Open a listing**  
+Tap a result to see the description, file list, and comments. From there you can:
+
+- **Magnet** — start the download in your torrent app
+- **Copy magnet** — copy the link to paste elsewhere
+- **Download** — get the `.torrent` file
+- **Share** — send the listing to someone else
+- **View on Nyaa** — open the page in your browser
+
+Bookmark a listing with the star in the top corner so you can find it later on the **Bookmarks** tab. Swipe a bookmark left to remove it.
+
+**History**  
+Your recent searches appear on the **History** tab. Tap one to search it again, or swipe to delete it.
+
+**Look and feel**  
+Open **Settings** to pick a color theme. On newer phones, Aniyaa can follow your system colors.
+
+---
+
+## What you need
+
+- An Android phone or tablet running **Android 7.0** or later
+- An internet connection
+- A torrent app if you want to download files (Aniyaa only hands off the link)
+
+Bookmarks and search history stay on your device. Aniyaa does not create an account.
+
+---
+
+## License and disclaimer
+
+Aniyaa is free and open source. See [LICENSE](LICENSE) for details.
+
+Aniyaa is an unofficial project and is not affiliated with or endorsed by nyaa.si. Use it in line with the laws where you live.
+
+---
+
+<details>
+<summary>For people who want to build the app from source</summary>
+
+You will need JDK 17 and the Android SDK. Then:
 
 ```bash
 git clone https://github.com/Gourab0002/Aniyaa.git
 cd Aniyaa
-./gradlew assembleDebug          # APK → app/build/outputs/apk/debug/
-./gradlew installDebug           # build + install on a connected device
-```
-
-Or open the project in Android Studio (**File → Open**), let Gradle sync, and press **Run ▶**.
-
-### Signed release APK
-
-Local signed builds need a PKCS12 keystore and a gitignored `keystore.properties` (see `keystore.properties.example`). Then:
-
-```bash
-./gradlew assembleRelease          # APK → app/build/outputs/apk/release/
-```
-
-GitHub Releases are created automatically when a version tag is pushed:
-
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-CI runs tests, signs the APK with the repo’s release keystore secrets, and attaches `Aniyaa-v1.0.1.apk` to the [Releases](https://github.com/Gourab0002/Aniyaa/releases) page. Keep the keystore and its passwords backed up; a new key cannot update an existing install.
-
----
-
-## How It Works
-
-Aniyaa queries the nyaa.si RSS feed:
-
-```
-https://nyaa.si/?page=rss&q=<query>&c=<category>&f=<filter>&s=<sort>&o=<order>
-```
-
-The feed's `nyaa:` namespace fields (seeders, leechers, infoHash, trusted, etc.) are parsed with `XmlPullParser`. Magnet links are assembled from the `infoHash` plus a set of public trackers — no extra client API needed. Torrent detail pages and comments are fetched as HTML and parsed with Jsoup; markdown content is rendered via Markwon.
-
-Search requests are cancelled when a new query starts, pages are merged with unique keys so infinite scroll cannot crash on duplicates, and HTTP responses are always closed. Dates include the year. Release builds enable R8 shrinking.
-
-```bash
-./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ```
 
----
+Signed releases are published automatically when a `v*.*.*` tag is pushed. Local signed builds use a gitignored `keystore.properties` file; see `keystore.properties.example`.
 
-## Project Structure
-
-```
-app/src/main/java/com/nyaa/aniyaa/
-├── MainActivity.kt              # Entry point, NavHost, high refresh rate
-├── data/
-│   ├── api/                     # RSS + HTML parsers
-│   ├── model/                   # Torrent, SearchParams, enums
-│   ├── network/                 # Shared OkHttp client + cancellable calls
-│   └── repository/              # Search, bookmarks, history
-├── ui/
-│   ├── screens/                 # Search, history, bookmarks, settings, detail
-│   ├── theme/                   # Color, Theme, Type
-│   └── viewmodel/               # Shared ViewModels (StateFlow)
-└── util/                        # Date formatting, 120 Hz display mode
-```
-
----
-
-## Contributing
-
-1. Fork the repo and create a feature branch.
-2. Keep PRs focused and small.
-3. Open a pull request against `main` with a clear description.
-
----
-
-## License
-
-Open source — see [LICENSE](LICENSE) for details.
-
----
-
-<div align="center">
-
-> **Disclaimer:** Aniyaa is an unofficial third-party client and is not affiliated with or endorsed by nyaa.si.
-
-</div>
+</details>
