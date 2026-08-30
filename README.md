@@ -74,6 +74,23 @@ cd Aniyaa
 
 Or open the project in Android Studio (**File → Open**), let Gradle sync, and press **Run ▶**.
 
+### Signed release APK
+
+Local signed builds need a PKCS12 keystore and a gitignored `keystore.properties` (see `keystore.properties.example`). Then:
+
+```bash
+./gradlew assembleRelease          # APK → app/build/outputs/apk/release/
+```
+
+GitHub Releases are created automatically when a version tag is pushed:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+CI runs tests, signs the APK with the repo’s release keystore secrets, and attaches `Aniyaa-v1.0.1.apk` to the [Releases](https://github.com/Gourab0002/Aniyaa/releases) page. Keep the keystore and its passwords backed up; a new key cannot update an existing install.
+
 ---
 
 ## How It Works

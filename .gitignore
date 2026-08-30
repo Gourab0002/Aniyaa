@@ -11,3 +11,8 @@ local.properties
 # APKs
 *.apk
 *.aab
+
+# Release signing
+*.keystore
+*.jks
+keystore.properties

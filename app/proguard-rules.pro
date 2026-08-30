@@ -8,6 +8,7 @@
 -dontwarn org.conscrypt.**
 
 -keep class org.jsoup.** { *; }
+-dontwarn org.jspecify.annotations.NullMarked
 
 -keep class io.noties.markwon.** { *; }
 -keep class io.noties.markwon.image.** { *; }
