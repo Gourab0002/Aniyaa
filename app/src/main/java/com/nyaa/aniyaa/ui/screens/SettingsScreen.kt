@@ -1,5 +1,8 @@
 package com.nyaa.aniyaa.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -42,9 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nyaa.aniyaa.BuildConfig
 import com.nyaa.aniyaa.ui.theme.APP_THEMES
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,18 +161,51 @@ fun SettingsScreen(
                 ),
                 shape = RoundedCornerShape(16.dp)
             ) {
+                val context = LocalContext.current
+                fun openUrl(url: String) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    } catch (_: ActivityNotFoundException) {
+                    }
+                }
                 Column(modifier = Modifier.padding(20.dp)) {
-                    InfoSettingsRow(label = "App", value = "Aniyaa")
+                    Text(
+                        text = "Aniyaa is a simple way to search nyaa.si on your phone. It finds listings — a torrent app you already have does the downloading.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "This is not an official nyaa.si app. Bookmarks and search history stay on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
                     HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 10.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    InfoSettingsRow(label = "Source", value = "nyaa.si")
+                    Spacer(Modifier.height(12.dp))
+                    InfoSettingsRow(label = "Version", value = BuildConfig.VERSION_NAME)
+                    Spacer(Modifier.height(10.dp))
                     HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 10.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    InfoSettingsRow(label = "Version", value = "1.0")
+                    Spacer(Modifier.height(10.dp))
+                    InfoSettingsRow(
+                        label = "Listings",
+                        value = "nyaa.si",
+                        onClick = { openUrl("https://nyaa.si") }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    InfoSettingsRow(
+                        label = "Updates",
+                        value = "GitHub Releases",
+                        onClick = { openUrl("https://github.com/Gourab0002/Aniyaa/releases/latest") }
+                    )
                 }
             }
         }
@@ -260,9 +298,15 @@ private fun ThemeCard(
 }
 
 @Composable
-private fun InfoSettingsRow(label: String, value: String) {
+private fun InfoSettingsRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -275,7 +319,11 @@ private fun InfoSettingsRow(label: String, value: String) {
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (onClick != null) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             fontWeight = FontWeight.Medium
         )
     }
