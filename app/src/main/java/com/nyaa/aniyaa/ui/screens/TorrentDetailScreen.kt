@@ -1,5 +1,6 @@
 package com.nyaa.aniyaa.ui.screens
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,19 +22,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,10 +55,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.nyaa.aniyaa.data.api.resolvedMagnet
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.data.model.TorrentFileEntry
@@ -76,7 +81,9 @@ import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
+import com.nyaa.aniyaa.ui.viewmodel.CommentsUiState
 import com.nyaa.aniyaa.ui.viewmodel.CommentsViewModel
+import com.nyaa.aniyaa.util.PubDateFormatter
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -90,45 +97,61 @@ fun TorrentDetailScreen(
     torrent: Torrent,
     onNavigateBack: () -> Unit,
     bookmarkViewModel: BookmarkViewModel = viewModel(),
-    commentsViewModel: CommentsViewModel = viewModel()
+    commentsViewModel: CommentsViewModel = viewModel(
+        key = torrent.id.ifEmpty { torrent.infoHash }.ifEmpty { torrent.guid }
+    )
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val bookmarks by bookmarkViewModel.bookmarks.collectAsState()
-    val isBookmarked = bookmarks.any { it.id == torrent.id }
-    val commentsState by commentsViewModel.uiState.collectAsState()
+    val bookmarks by bookmarkViewModel.bookmarks.collectAsStateWithLifecycle()
+    val isBookmarked = bookmarks.any { it.identity() == torrent.identity() }
+    val commentsState by commentsViewModel.uiState.collectAsStateWithLifecycle()
+    val formattedDate = remember(torrent.pubDate) { PubDateFormatter.format(torrent.pubDate) }
+    val magnetLink = remember(torrent.infoHash, torrent.title, torrent.magnetLink) {
+        torrent.resolvedMagnet()
+    }
 
     LaunchedEffect(torrent.id) {
-        commentsViewModel.fetchComments(torrent.id)
+        if (torrent.id.isNotBlank()) {
+            commentsViewModel.fetchComments(torrent.id)
+        }
+    }
+
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
     }
 
     fun openUrl(url: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-        context.startActivity(intent)
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: ActivityNotFoundException) {
+            showMessage("No app found to open this link")
+        } catch (e: Exception) {
+            showMessage("Could not open link: ${e.message}")
+        }
     }
 
     fun copyToClipboard(text: String, label: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-        scope.launch { snackbarHostState.showSnackbar("Copied to clipboard") }
+        showMessage("Copied to clipboard")
     }
 
     fun downloadTorrent(downloadUrl: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            scope.launch { snackbarHostState.showSnackbar("Could not open download link: ${e.message}") }
-        }
+        openUrl(downloadUrl)
     }
 
     fun shareText(text: String) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share"))
+        } catch (e: Exception) {
+            showMessage("Could not share: ${e.message}")
         }
-        context.startActivity(Intent.createChooser(intent, "Share"))
     }
 
     Scaffold(
@@ -167,15 +190,14 @@ fun TorrentDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(paddingValues),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Title card
+            item(key = "title") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -206,9 +228,10 @@ fun TorrentDetailScreen(
                     }
                 }
             }
+            }
 
-            // Status badges
             if (torrent.trusted || torrent.remake) {
+                item(key = "badges") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (torrent.trusted) {
                         Surface(
@@ -239,9 +262,10 @@ fun TorrentDetailScreen(
                         }
                     }
                 }
+                }
             }
 
-            // Stats card
+            item(key = "stats") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -274,8 +298,9 @@ fun TorrentDetailScreen(
                     }
                 }
             }
+            }
 
-            // Info card
+            item(key = "info") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -291,7 +316,7 @@ fun TorrentDetailScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(16.dp))
-                    InfoRow(label = "Date", value = torrent.pubDate)
+                    InfoRow(label = "Date", value = formattedDate.ifEmpty { torrent.pubDate })
                     if (torrent.infoHash.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -300,9 +325,37 @@ fun TorrentDetailScreen(
                     }
                 }
             }
+            }
 
-            // Description card
+            if (commentsState.error != null && commentsState.description.isEmpty() && !commentsState.isLoading) {
+                item(key = "load-error") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = "Could not load description, files, or comments",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { commentsViewModel.retry(torrent.id) },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                }
+                }
+            }
+
             if (commentsState.description.isNotEmpty()) {
+                item(key = "description") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -321,9 +374,10 @@ fun TorrentDetailScreen(
                         MarkdownContent(markdown = commentsState.description)
                     }
                 }
+                }
             }
 
-            // Action buttons
+            item(key = "actions") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -345,9 +399,9 @@ fun TorrentDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         maxItemsInEachRow = 2
                     ) {
-                        if (torrent.magnetLink.isNotEmpty()) {
+                        if (magnetLink.isNotEmpty()) {
                             FilledTonalButton(
-                                onClick = { openUrl(torrent.magnetLink) },
+                                onClick = { openUrl(magnetLink) },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -356,7 +410,7 @@ fun TorrentDetailScreen(
                                 Text("Magnet", maxLines = 1, fontWeight = FontWeight.SemiBold)
                             }
                             OutlinedButton(
-                                onClick = { copyToClipboard(torrent.magnetLink, "Magnet Link") },
+                                onClick = { copyToClipboard(magnetLink, "Magnet Link") },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -379,7 +433,7 @@ fun TorrentDetailScreen(
                         OutlinedButton(
                             onClick = {
                                 val textToShare = "${torrent.title}\n\n" +
-                                    (if (torrent.magnetLink.isNotEmpty()) "Magnet: ${torrent.magnetLink}\n" else "") +
+                                    (if (magnetLink.isNotEmpty()) "Magnet: $magnetLink\n" else "") +
                                     (if (torrent.guid.isNotEmpty()) "Page: ${torrent.guid}" else "")
                                 shareText(textToShare)
                             },
@@ -398,111 +452,48 @@ fun TorrentDetailScreen(
                             ) {
                                 Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("View on nyaa", maxLines = 1)
+                                Text("View on Nyaa", maxLines = 1)
                             }
                         }
                     }
                 }
             }
+            }
 
-            // File list card
             if (commentsState.fileList.isNotEmpty()) {
-                FileListCard(fileList = commentsState.fileList)
-            }
-
-            // Comments card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                ),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
-                    Text(
-                        text = "Comments",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    when {
-                        commentsState.isLoading -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(28.dp),
-                                    strokeWidth = 2.5.dp
-                                )
-                            }
-                        }
-                        commentsState.error != null -> {
-                            Text(
-                                text = "Could not load comments",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            if (torrent.guid.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = { openUrl(torrent.guid) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("View comments in browser")
-                                }
-                            }
-                        }
-                        commentsState.comments.isEmpty() && commentsState.hasFetched -> {
-                            if (torrent.comments > 0 && torrent.guid.isNotEmpty()) {
-                                Text(
-                                    text = "Comments could not be loaded in-app",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = { openUrl(torrent.guid) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("View comments in browser")
-                                }
-                            } else {
-                                Text(
-                                    text = "No comments to display",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                        }
-                        else -> {
-                            commentsState.comments.forEachIndexed { index, comment ->
-                                CommentItem(comment = comment)
-                                if (index < commentsState.comments.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(vertical = 12.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                item(key = "files-header") {
+                    FileListHeader(count = commentsState.fileList.size)
+                }
+                itemsIndexed(
+                    items = commentsState.fileList,
+                    key = { index, file -> "file-$index-${file.name}" },
+                    contentType = { _, _ -> "file" }
+                ) { _, file ->
+                    FileListItem(file = file)
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            item(key = "comments-header") {
+                CommentsHeader(
+                    commentsState = commentsState,
+                    torrent = torrent,
+                    onRetry = { commentsViewModel.retry(torrent.id) },
+                    onOpenPage = { if (torrent.guid.isNotEmpty()) openUrl(torrent.guid) }
+                )
+            }
+            if (!commentsState.isLoading && commentsState.error == null && commentsState.comments.isNotEmpty()) {
+                itemsIndexed(
+                    items = commentsState.comments,
+                    key = { index, comment -> "com-${comment.id.ifEmpty { index.toString() }}" },
+                    contentType = { _, _ -> "comment" }
+                ) { _, comment ->
+                    CommentItem(comment = comment)
+                }
+            }
+
+            item(key = "bottom-space") {
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }
@@ -534,7 +525,11 @@ private fun CommentItem(comment: TorrentComment) {
                 }
                 if (comment.avatarUrl.isNotEmpty()) {
                     AsyncImage(
-                        model = comment.avatarUrl,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(comment.avatarUrl)
+                            .size(96)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = "${comment.username}'s avatar",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -572,7 +567,9 @@ private fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
     val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
     val markwon = remember(context) {
         Markwon.builder(context)
-            .usePlugin(ImagesPlugin.create())
+            .usePlugin(ImagesPlugin.create { plugin ->
+                plugin.errorHandler { _, _ -> null }
+            })
             .usePlugin(TablePlugin.create(context))
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(LinkifyPlugin.create(true))
@@ -588,7 +585,10 @@ private fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
         update = { textView ->
             textView.setTextColor(textColor)
             textView.textSize = textSizeSp
-            markwon.setMarkdown(textView, markdown)
+            if (textView.tag != markdown) {
+                textView.tag = markdown
+                markwon.setMarkdown(textView, markdown)
+            }
         }
     )
 }
@@ -635,45 +635,110 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun FileListCard(fileList: List<TorrentFileEntry>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
-        shape = RoundedCornerShape(16.dp)
+private fun FileListHeader(count: Int) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "File List",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
+        Text(
+            text = "File List",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommentsHeader(
+    commentsState: CommentsUiState,
+    torrent: Torrent,
+    onRetry: () -> Unit,
+    onOpenPage: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Comments",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(16.dp))
+        when {
+            commentsState.isLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "${fileList.size}",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontWeight = FontWeight.Bold
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.5.dp
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            fileList.forEachIndexed { index, file ->
-                FileListItem(file = file)
-                if (index < fileList.lastIndex) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 6.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            commentsState.error != null -> {
+                Text(
+                    text = commentsState.error ?: "Could not load details",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Retry")
+                }
+                if (torrent.guid.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenPage,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("View comments in browser")
+                    }
+                }
+            }
+            commentsState.comments.isEmpty() && commentsState.hasFetched -> {
+                if (torrent.comments > 0 && torrent.guid.isNotEmpty()) {
+                    Text(
+                        text = "Comments could not be loaded in-app",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenPage,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("View comments in browser")
+                    }
+                } else {
+                    Text(
+                        text = "No comments to display",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
             }
@@ -684,7 +749,9 @@ private fun FileListCard(fileList: List<TorrentFileEntry>) {
 @Composable
 private fun FileListItem(file: TorrentFileEntry) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

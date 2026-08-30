@@ -2,43 +2,75 @@ package com.nyaa.aniyaa.data.repository
 
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
+
+data class SearchHistoryEntry(
+    val query: String,
+    val timestamp: Long
+)
 
 class SearchHistoryRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("search_history", Context.MODE_PRIVATE)
 
-    fun getHistory(): List<String> {
-        val json = prefs.getString("history_list", "[]") ?: "[]"
+    companion object {
+        private const val KEY_HISTORY = "history_list"
+        private const val MAX_HISTORY_SIZE = 50
+    }
+
+    fun getHistory(): List<SearchHistoryEntry> {
+        val json = prefs.getString(KEY_HISTORY, "[]") ?: "[]"
+        return parseHistory(json)
+    }
+
+    fun addEntry(query: String) {
+        if (query.isBlank()) return
+        val trimmedQuery = query.trim()
+        val history = getHistory().toMutableList()
+        history.removeAll { it.query.equals(trimmedQuery, ignoreCase = true) }
+        history.add(0, SearchHistoryEntry(query = trimmedQuery, timestamp = System.currentTimeMillis()))
+        val trimmed = if (history.size > MAX_HISTORY_SIZE) history.take(MAX_HISTORY_SIZE) else history
+        saveHistory(trimmed)
+    }
+
+    fun removeEntry(query: String) {
+        val trimmedQuery = query.trim()
+        val history = getHistory().filter { !it.query.equals(trimmedQuery, ignoreCase = true) }
+        saveHistory(history)
+    }
+
+    fun clearHistory() {
+        prefs.edit().putString(KEY_HISTORY, "[]").apply()
+    }
+
+    private fun parseHistory(json: String): List<SearchHistoryEntry> {
         return try {
             val array = JSONArray(json)
-            (0 until array.length()).map { array.getString(it) }
+            (0 until array.length()).mapNotNull { i ->
+                when (val item = array.get(i)) {
+                    is JSONObject -> SearchHistoryEntry(
+                        query = item.optString("query", ""),
+                        timestamp = item.optLong("timestamp", 0L)
+                    ).takeIf { it.query.isNotBlank() }
+                    is String -> item.takeIf { it.isNotBlank() }?.let {
+                        SearchHistoryEntry(query = it, timestamp = 0L)
+                    }
+                    else -> null
+                }
+            }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
-    fun addToHistory(query: String) {
-        if (query.isBlank()) return
-        val history = getHistory().filter { it != query }.toMutableList()
-        history.add(0, query)
-        saveHistory(history.take(MAX_HISTORY))
-    }
-
-    fun removeFromHistory(query: String) {
-        saveHistory(getHistory().filter { it != query })
-    }
-
-    fun clearHistory() {
-        prefs.edit().remove("history_list").apply()
-    }
-
-    private fun saveHistory(history: List<String>) {
+    private fun saveHistory(history: List<SearchHistoryEntry>) {
         val array = JSONArray()
-        history.forEach { array.put(it) }
-        prefs.edit().putString("history_list", array.toString()).apply()
-    }
-
-    companion object {
-        private const val MAX_HISTORY = 20
+        history.forEach { entry ->
+            array.put(JSONObject().apply {
+                put("query", entry.query)
+                put("timestamp", entry.timestamp)
+            })
+        }
+        prefs.edit().putString(KEY_HISTORY, array.toString()).apply()
     }
 }

@@ -1,8 +1,10 @@
 package com.nyaa.aniyaa.data.model
 
 import android.os.Parcelable
+import androidx.compose.runtime.Immutable
 import kotlinx.parcelize.Parcelize
 
+@Immutable
 @Parcelize
 data class Torrent(
     val id: String,
@@ -20,7 +22,26 @@ data class Torrent(
     val trusted: Boolean,
     val remake: Boolean,
     val magnetLink: String
-) : Parcelable
+) : Parcelable {
+    fun identity(): String = when {
+        id.isNotEmpty() -> id
+        infoHash.isNotEmpty() -> infoHash
+        guid.isNotEmpty() -> guid
+        else -> "$title|$pubDate|$link"
+    }
+
+    fun matchesNavId(navId: String): Boolean =
+        navId.isNotEmpty() && (id == navId || infoHash == navId || navId() == navId)
+
+    fun navId(): String = id.ifBlank { infoHash }.ifBlank { "unknown" }
+
+    fun listKey(index: Int): String = when {
+        id.isNotEmpty() -> "id:$id"
+        infoHash.isNotEmpty() -> "ih:$infoHash"
+        guid.isNotEmpty() -> "g:$guid"
+        else -> "i:$index:${title.hashCode()}:$pubDate"
+    }
+}
 
 enum class SortField(val value: String, val displayName: String) {
     DATE("id", "Date"),
@@ -69,6 +90,7 @@ data class SearchParams(
     val page: Int = 1
 )
 
+@Immutable
 data class TorrentComment(
     val id: String,
     val username: String,
@@ -77,6 +99,7 @@ data class TorrentComment(
     val content: String
 )
 
+@Immutable
 data class TorrentFileEntry(
     val name: String,
     val size: String

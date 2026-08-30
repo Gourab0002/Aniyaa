@@ -75,6 +75,45 @@ class TorrentModelTest {
     }
 
     @Test
+    fun identity_prefersIdThenHash() {
+        val withId = Torrent(
+            id = "1", title = "Title", link = "https://example.com/dl",
+            guid = "https://example.com/view/1", pubDate = "Wed, 01 Jan 2025 00:00:00 -0000",
+            seeders = 0, leechers = 0, downloads = 0, infoHash = "abc", category = "Anime",
+            size = "1.0 MiB", comments = 0, trusted = false, remake = false, magnetLink = ""
+        )
+        val hashOnly = withId.copy(id = "")
+        assertEquals("1", withId.identity())
+        assertEquals("abc", hashOnly.identity())
+    }
+
+    @Test
+    fun matchesNavId_acceptsIdHashAndFallback() {
+        val torrent = Torrent(
+            id = "12", title = "Title", link = "https://example.com/dl",
+            guid = "https://example.com/view/1", pubDate = "Wed, 01 Jan 2025 00:00:00 -0000",
+            seeders = 0, leechers = 0, downloads = 0, infoHash = "ff", category = "Anime",
+            size = "1.0 MiB", comments = 0, trusted = false, remake = false, magnetLink = ""
+        )
+        assertTrue(torrent.matchesNavId("12"))
+        assertTrue(torrent.copy(id = "").matchesNavId("ff"))
+        assertTrue(torrent.copy(id = "", infoHash = "").matchesNavId("unknown"))
+        assertFalse(torrent.matchesNavId("nope"))
+    }
+
+    @Test
+    fun listKey_isStableForRealIds() {
+        val torrent = Torrent(
+            id = "12", title = "Title", link = "https://example.com/dl",
+            guid = "https://example.com/view/1", pubDate = "Wed, 01 Jan 2025 00:00:00 -0000",
+            seeders = 0, leechers = 0, downloads = 0, infoHash = "ff", category = "Anime",
+            size = "1.0 MiB", comments = 0, trusted = false, remake = false, magnetLink = ""
+        )
+        assertEquals("id:12", torrent.listKey(0))
+        assertEquals("ih:ff", torrent.copy(id = "").listKey(3))
+    }
+
+    @Test
     fun searchParams_customValues() {
         val params = SearchParams(
             query = "naruto",

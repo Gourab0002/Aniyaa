@@ -9,18 +9,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,7 +33,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nyaa.aniyaa.ui.theme.APP_THEMES
 
@@ -52,9 +51,11 @@ import com.nyaa.aniyaa.ui.theme.APP_THEMES
 @Composable
 fun SettingsScreen(
     currentThemeIndex: Int,
-    onThemeSelected: (Int) -> Unit
+    onThemeSelected: (Int) -> Unit,
+    bottomPadding: Dp = 0.dp
 ) {
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -75,9 +76,10 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(bottom = bottomPadding)
         ) {
-            // Theme section header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -103,27 +105,32 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(16.dp))
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(0.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                itemsIndexed(APP_THEMES) { index, theme ->
-                    ThemeCard(
-                        themeName = theme.name,
-                        primaryColor = theme.primary,
-                        secondaryColor = theme.secondary,
-                        tertiaryColor = theme.tertiary,
-                        isSelected = currentThemeIndex == index,
-                        onClick = { onThemeSelected(index) }
-                    )
+            APP_THEMES.chunked(2).forEachIndexed { rowIndex, rowThemes ->
+                if (rowIndex > 0) Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    rowThemes.forEachIndexed { columnIndex, theme ->
+                        val index = rowIndex * 2 + columnIndex
+                        ThemeCard(
+                            themeName = theme.name,
+                            primaryColor = theme.primary,
+                            secondaryColor = theme.secondary,
+                            tertiaryColor = theme.tertiary,
+                            isSelected = currentThemeIndex == index,
+                            onClick = { onThemeSelected(index) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (rowThemes.size == 1) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
 
             Spacer(Modifier.height(32.dp))
 
-            // About section
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -174,7 +181,8 @@ private fun ThemeCard(
     secondaryColor: Color,
     tertiaryColor: Color,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val containerColor by animateColorAsState(
         targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer
@@ -184,14 +192,18 @@ private fun ThemeCard(
     )
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(
-                if (isSelected) Modifier.border(
-                    2.dp,
-                    MaterialTheme.colorScheme.primary,
-                    RoundedCornerShape(16.dp)
-                ) else Modifier
+                if (isSelected) {
+                    Modifier.border(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(16.dp)
+                    )
+                } else {
+                    Modifier
+                }
             )
             .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

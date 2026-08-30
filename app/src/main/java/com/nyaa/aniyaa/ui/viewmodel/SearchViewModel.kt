@@ -1,9 +1,7 @@
 package com.nyaa.aniyaa.ui.viewmodel
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nyaa.aniyaa.data.model.CATEGORIES
 import com.nyaa.aniyaa.data.model.Category
 import com.nyaa.aniyaa.data.model.FilterOption
 import com.nyaa.aniyaa.data.model.SearchParams
@@ -11,7 +9,9 @@ import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.repository.NyaaRepository
-import com.nyaa.aniyaa.data.repository.SearchHistoryRepository
+import com.nyaa.aniyaa.data.repository.mergeSearchPages
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,35 +19,31 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class SearchUiState(
-    val query: String = "",
     val torrents: List<Torrent> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val canLoadMore: Boolean = true,
     val error: String? = null,
     val searchParams: SearchParams = SearchParams(),
-    val hasSearched: Boolean = false,
-    val history: List<String> = emptyList()
+    val hasSearched: Boolean = false
 )
 
-class SearchViewModel(application: Application) : AndroidViewModel(application) {
+class SearchViewModel : ViewModel() {
 
     private val repository = NyaaRepository()
-    private val historyRepository = SearchHistoryRepository(application)
+
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    init {
-        loadHistory()
-    }
-
-    private fun loadHistory() {
-        _uiState.update { it.copy(history = historyRepository.getHistory()) }
-    }
+    private var searchJob: Job? = null
+    private var loadMoreJob: Job? = null
+    private var requestGeneration: Long = 0L
 
     fun updateQuery(query: String) {
-        _uiState.update { it.copy(query = query, searchParams = it.searchParams.copy(query = query)) }
+        _query.value = query
     }
 
     fun updateCategory(category: Category) {
@@ -68,51 +64,108 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun resetFilters() {
         _uiState.update { state ->
-            state.copy(
-                searchParams = SearchParams(query = state.query)
-            )
+            state.copy(searchParams = SearchParams(query = _query.value))
         }
     }
 
     fun search() {
-        val params = _uiState.value.searchParams.copy(page = 1)
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, searchParams = params, canLoadMore = true) }
-            historyRepository.addToHistory(params.query)
-            loadHistory()
-            val result = repository.search(params)
+        loadMoreJob?.cancel()
+        searchJob?.cancel()
+
+        val params = _uiState.value.searchParams.copy(query = _query.value, page = 1)
+        val generation = ++requestGeneration
+
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isLoadingMore = false,
+                error = null,
+                searchParams = params,
+                canLoadMore = true
+            )
+        }
+
+        searchJob = viewModelScope.launch {
+            val result = try {
+                repository.search(params)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            if (generation != requestGeneration) return@launch
             result.fold(
                 onSuccess = { torrents ->
-                    _uiState.update { it.copy(isLoading = false, torrents = torrents, hasSearched = true, canLoadMore = torrents.isNotEmpty()) }
+                    val (merged, canLoadMore) = mergeSearchPages(emptyList(), torrents, replace = true)
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            torrents = merged,
+                            hasSearched = true,
+                            canLoadMore = canLoadMore,
+                            error = null
+                        )
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Unknown error", hasSearched = true) }
+                    if (e is CancellationException) return@fold
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Unknown error",
+                            hasSearched = true
+                        )
+                    }
                 }
             )
         }
     }
 
     fun loadNextPage() {
+        if (searchJob?.isActive == true || loadMoreJob?.isActive == true) return
+
         val state = _uiState.value
         if (state.isLoading || state.isLoadingMore || !state.canLoadMore) return
+
         val nextPage = state.searchParams.page + 1
         val params = state.searchParams.copy(page = nextPage)
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingMore = true, error = null) }
-            val result = repository.search(params)
+        val generation = requestGeneration
+
+        _uiState.update { it.copy(isLoadingMore = true, error = null) }
+
+        loadMoreJob = viewModelScope.launch {
+            val result = try {
+                repository.search(params)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            if (generation != requestGeneration) return@launch
             result.fold(
                 onSuccess = { torrents ->
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { current ->
+                        val (merged, canLoadMore) = mergeSearchPages(
+                            existing = current.torrents,
+                            incoming = torrents,
+                            replace = false
+                        )
+                        current.copy(
                             isLoadingMore = false,
-                            torrents = it.torrents + torrents,
+                            torrents = merged,
                             searchParams = params,
-                            canLoadMore = torrents.isNotEmpty()
+                            canLoadMore = canLoadMore
                         )
                     }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(isLoadingMore = false, error = e.message ?: "Unknown error") }
+                    if (e is CancellationException) return@fold
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMore = false,
+                            error = e.message ?: "Unknown error"
+                        )
+                    }
                 }
             )
         }
@@ -122,13 +175,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(error = null) }
     }
 
-    fun removeFromHistory(query: String) {
-        historyRepository.removeFromHistory(query)
-        loadHistory()
-    }
-
-    fun clearHistory() {
-        historyRepository.clearHistory()
-        loadHistory()
-    }
+    fun torrentByNavId(navId: String): Torrent? =
+        _uiState.value.torrents.find { it.matchesNavId(navId) }
 }

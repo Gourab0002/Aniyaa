@@ -16,19 +16,20 @@ class BookmarkRepository(context: Context) {
 
     fun addBookmark(torrent: Torrent) {
         val bookmarks = getBookmarks().toMutableList()
-        if (bookmarks.none { it.id == torrent.id }) {
+        val identity = torrent.identity()
+        if (bookmarks.none { it.identity() == identity }) {
             bookmarks.add(0, torrent)
             saveBookmarks(bookmarks)
         }
     }
 
     fun removeBookmark(torrentId: String) {
-        val bookmarks = getBookmarks().filter { it.id != torrentId }
+        val bookmarks = getBookmarks().filter { it.id != torrentId && it.infoHash != torrentId }
         saveBookmarks(bookmarks)
     }
 
     fun isBookmarked(torrentId: String): Boolean {
-        return getBookmarks().any { it.id == torrentId }
+        return getBookmarks().any { it.id == torrentId || it.infoHash == torrentId }
     }
 
     private fun torrentToJson(torrent: Torrent): JSONObject = JSONObject().apply {

@@ -25,14 +25,18 @@ Aniyaa lets you search, filter, and download torrents from nyaa.si — the premi
 
 | | Feature |
 |---|---|
-| 🔍 | **Full-text search** across all of nyaa.si |
+| 🔍 | **Full-text search** across all of nyaa.si, with infinite scroll |
 | 🗂️ | **Category filtering** — Anime, Audio, Literature, Live Action, Pictures, Software, and sub-categories |
 | ✅ | **Quality filter** — All · No Remakes · Trusted Only |
 | ↕️ | **Flexible sorting** — by Date, Seeders, Leechers, Size, Downloads, or Comments |
 | 📄 | **Rich torrent cards** — title, category badge, trust status, size, date, seeds, leeches, downloads |
+| 📝 | **Torrent details** — markdown description, nested file list, and comments |
 | 🔗 | **One-tap actions** — open magnet, copy magnet, download `.torrent`, share, or open on nyaa.si |
+| 🔖 | **Bookmarks** — save listings locally; swipe to remove |
+| 🕘 | **Search history** — last 50 queries, with swipe-to-delete and clear-all |
 | 🎨 | **Material You** — dynamic color on Android 12+, falls back to a purple-blue palette |
 | 📱 | **Edge-to-edge UI** — content flows behind system bars for a fully immersive layout |
+| ⚡ | **120 Hz+** — locks to the display's highest same-resolution refresh rate |
 
 ---
 
@@ -82,21 +86,30 @@ https://nyaa.si/?page=rss&q=<query>&c=<category>&f=<filter>&s=<sort>&o=<order>
 
 The feed's `nyaa:` namespace fields (seeders, leechers, infoHash, trusted, etc.) are parsed with `XmlPullParser`. Magnet links are assembled from the `infoHash` plus a set of public trackers — no extra client API needed. Torrent detail pages and comments are fetched as HTML and parsed with Jsoup; markdown content is rendered via Markwon.
 
+Search requests are cancelled when a new query starts, pages are merged with unique keys so infinite scroll cannot crash on duplicates, and HTTP responses are always closed. Dates include the year. Release builds enable R8 shrinking.
+
+```bash
+./gradlew testDebugUnitTest
+./gradlew assembleDebug
+```
+
 ---
 
 ## Project Structure
 
 ```
 app/src/main/java/com/nyaa/aniyaa/
-├── MainActivity.kt              # Entry point, NavHost
+├── MainActivity.kt              # Entry point, NavHost, high refresh rate
 ├── data/
 │   ├── api/                     # RSS + HTML parsers
 │   ├── model/                   # Torrent, SearchParams, enums
-│   └── repository/              # OkHttp calls, URL builder
-└── ui/
-    ├── screens/                 # SearchScreen, TorrentDetailScreen
-    ├── theme/                   # Color, Theme, Type
-    └── viewmodel/               # SearchViewModel (StateFlow)
+│   ├── network/                 # Shared OkHttp client + cancellable calls
+│   └── repository/              # Search, bookmarks, history
+├── ui/
+│   ├── screens/                 # Search, history, bookmarks, settings, detail
+│   ├── theme/                   # Color, Theme, Type
+│   └── viewmodel/               # Shared ViewModels (StateFlow)
+└── util/                        # Date formatting, 120 Hz display mode
 ```
 
 ---
