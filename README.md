@@ -67,7 +67,7 @@ Recent searches are on the **History** tab. Saved searches can notify you of new
 Links to nyaa.si or sukebei.nyaa.si listings and searches can open in Aniyaa.
 
 **Look and feel**  
-Settings has color theme, light/dark mode, default category and sort, and a preferred torrent app.
+Settings has **Material You** (wallpaper colors on Android 12+), extra palettes, light/dark mode, default category and sort, and a preferred torrent app.
 
 **Privacy**  
 App lock (PIN or biometrics), hide screenshots, or hide from recents. Export or reset local data from Settings.

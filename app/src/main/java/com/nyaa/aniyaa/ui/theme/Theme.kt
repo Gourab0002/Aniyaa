@@ -3,6 +3,7 @@ package com.nyaa.aniyaa.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -10,6 +11,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -172,6 +174,44 @@ private val lightSchemes = listOf(
     )
 )
 
+data class ThemeSwatch(
+    val primary: Color,
+    val secondary: Color,
+    val tertiary: Color,
+    val primaryContainer: Color,
+    val onPrimary: Color
+)
+
+@Composable
+fun rememberThemeSwatch(theme: AppTheme, darkTheme: Boolean): ThemeSwatch {
+    val context = LocalContext.current
+    return remember(theme, darkTheme) {
+        if (theme.usesDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val scheme = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            ThemeSwatch(
+                primary = scheme.primary,
+                secondary = scheme.secondary,
+                tertiary = scheme.tertiary,
+                primaryContainer = scheme.primaryContainer,
+                onPrimary = scheme.onPrimary
+            )
+        } else {
+            ThemeSwatch(
+                primary = theme.primary,
+                secondary = theme.secondary,
+                tertiary = theme.tertiary,
+                primaryContainer = theme.secondary,
+                onPrimary = Color.White
+            )
+        }
+    }
+}
+
+private fun ColorScheme.forEdgeToEdge(): ColorScheme = copy(
+    background = surface,
+    onBackground = onSurface
+)
+
 @Composable
 fun AniyaaTheme(
     darkMode: DarkMode = DarkMode.SYSTEM,
@@ -184,26 +224,31 @@ fun AniyaaTheme(
         DarkMode.LIGHT -> false
         DarkMode.DARK -> true
     }
-    val index = themeIndex.coerceIn(0, APP_THEMES.lastIndex)
+    val theme = themeAt(themeIndex)
+    val schemeIndex = theme.staticSchemeIndex.coerceIn(0, darkSchemes.lastIndex)
     val colorScheme = when {
-        themeIndex == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        theme.usesDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            val dynamic = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            dynamic.forEdgeToEdge()
         }
-        darkTheme -> darkSchemes[index]
-        else -> lightSchemes[index]
+        darkTheme -> darkSchemes[schemeIndex].forEdgeToEdge()
+        else -> lightSchemes[schemeIndex].forEdgeToEdge()
     }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = !darkTheme
+            insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = AniyaaShapes,
         content = content
     )
 }

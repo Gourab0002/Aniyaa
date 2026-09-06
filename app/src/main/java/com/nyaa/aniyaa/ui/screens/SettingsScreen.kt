@@ -3,6 +3,7 @@ package com.nyaa.aniyaa.ui.screens
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -11,6 +12,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -64,7 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,6 +81,8 @@ import com.nyaa.aniyaa.data.model.DarkMode
 import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.ui.theme.APP_THEMES
+import com.nyaa.aniyaa.ui.theme.AppTheme
+import com.nyaa.aniyaa.ui.theme.rememberThemeSwatch
 import com.nyaa.aniyaa.ui.viewmodel.SettingsViewModel
 import com.nyaa.aniyaa.util.listTorrentApps
 import kotlinx.coroutines.launch
@@ -185,18 +190,35 @@ fun SettingsScreen(
         ) {
             SectionLabel("Appearance")
             Text("Color theme", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            Spacer(Modifier.height(12.dp))
-            APP_THEMES.chunked(2).forEachIndexed { rowIndex, rowThemes ->
+            Spacer(Modifier.height(8.dp))
+            val previewDark = when (darkMode) {
+                DarkMode.SYSTEM -> isSystemInDarkTheme()
+                DarkMode.LIGHT -> false
+                DarkMode.DARK -> true
+            }
+            val materialYou = APP_THEMES.first()
+            ThemeCard(
+                theme = materialYou,
+                isSelected = currentThemeIndex == 0,
+                previewDark = previewDark,
+                featured = true,
+                onClick = {
+                    onThemeSelected(0)
+                    settingsViewModel.setThemeIndex(0)
+                }
+            )
+            Spacer(Modifier.height(16.dp))
+            Text("Palettes", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            APP_THEMES.drop(1).chunked(2).forEachIndexed { rowIndex, rowThemes ->
                 if (rowIndex > 0) Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     rowThemes.forEachIndexed { columnIndex, theme ->
-                        val index = rowIndex * 2 + columnIndex
+                        val index = rowIndex * 2 + columnIndex + 1
                         ThemeCard(
-                            themeName = theme.name,
-                            primaryColor = theme.primary,
-                            secondaryColor = theme.secondary,
-                            tertiaryColor = theme.tertiary,
+                            theme = theme,
                             isSelected = currentThemeIndex == index,
+                            previewDark = previewDark,
                             onClick = {
                                 onThemeSelected(index)
                                 settingsViewModel.setThemeIndex(index)
@@ -568,49 +590,117 @@ private fun SettingsSwitchRow(title: String, subtitle: String, checked: Boolean,
 
 @Composable
 private fun ThemeCard(
-    themeName: String,
-    primaryColor: Color,
-    secondaryColor: Color,
-    tertiaryColor: Color,
+    theme: AppTheme,
     isSelected: Boolean,
+    previewDark: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    featured: Boolean = false
 ) {
+    val swatch = rememberThemeSwatch(theme, previewDark)
     val containerColor by animateColorAsState(
         targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer
         else MaterialTheme.colorScheme.surfaceContainerHigh,
         animationSpec = spring(stiffness = Spring.StiffnessLow),
         label = "themeCardColor"
     )
+    val caption = when {
+        !theme.usesDynamicColor -> null
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> "Colors follow your wallpaper"
+        else -> "Uses Aniyaa Purple until Android 12"
+    }
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)) else Modifier)
+            .then(
+                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large)
+                else Modifier
+            )
             .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large
     ) {
-        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (featured) {
+            Column {
                 Box(
-                    modifier = Modifier.size(28.dp).clip(CircleShape).background(primaryColor),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(swatch.primary, swatch.secondary, swatch.tertiary, swatch.primaryContainer)
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(swatch.primary))
+                        Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(swatch.secondary))
+                        Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(swatch.tertiary))
+                    }
                     if (isSelected) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = swatch.onPrimary,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 16.dp)
+                                .size(22.dp)
+                        )
                     }
                 }
-                Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(secondaryColor))
-                Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(tertiaryColor))
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.Wallpaper,
+                        contentDescription = null,
+                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = theme.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (caption != null) {
+                            Text(
+                                text = caption,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = themeName,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-            )
+        } else {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(28.dp).clip(CircleShape).background(swatch.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = swatch.onPrimary, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(swatch.secondary))
+                    Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(swatch.tertiary))
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = theme.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
