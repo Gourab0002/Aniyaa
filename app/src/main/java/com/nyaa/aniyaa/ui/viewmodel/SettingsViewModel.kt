@@ -7,8 +7,10 @@ import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.data.backup.BackupManager
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.DarkMode
+import com.nyaa.aniyaa.data.network.toUserMessage
 import com.nyaa.aniyaa.data.update.AppUpdate
 import com.nyaa.aniyaa.data.update.UpdateChecker
+import com.nyaa.aniyaa.data.update.UpdateInstaller
 import com.nyaa.aniyaa.work.SavedSearchWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         bookmarks = app.bookmarkRepository,
         history = app.historyRepository,
         savedSearches = app.savedSearchRepository,
+        viewed = app.viewedListingRepository,
         prefs = prefs
     )
 
@@ -37,6 +40,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _checkingUpdate = MutableStateFlow(false)
     val checkingUpdate: StateFlow<Boolean> = _checkingUpdate.asStateFlow()
 
+    private val _installingUpdate = MutableStateFlow(false)
+    val installingUpdate: StateFlow<Boolean> = _installingUpdate.asStateFlow()
+
+    private val _downloadedUpdate = MutableStateFlow<java.io.File?>(null)
+    val downloadedUpdate: StateFlow<java.io.File?> = _downloadedUpdate.asStateFlow()
+
     fun setThemeIndex(index: Int) {
         prefs.themeIndex = index
     }
@@ -48,6 +57,31 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setBaseUrl(site: CatalogSite, url: String) {
         prefs.setBaseUrl(site, url)
         _message.value = "Using ${prefs.baseUrl(site)}"
+    }
+
+    fun testMirror(site: CatalogSite, url: String) {
+        viewModelScope.launch {
+            val normalized = com.nyaa.aniyaa.data.network.SiteConfig.normalize(url, site)
+            val result = withContext(Dispatchers.IO) { app.nyaaRepository.probe(normalized) }
+            result.fold(
+                onSuccess = { _message.value = "$normalized is reachable" },
+                onFailure = { _message.value = it.toUserMessage() }
+            )
+        }
+    }
+
+    fun setLoadLatestOnStart(enabled: Boolean) {
+        prefs.loadLatestOnStart = enabled
+    }
+
+    fun setSavedSearchIntervalHours(hours: Int) {
+        prefs.savedSearchIntervalHours = hours
+        SavedSearchWorker.enqueue(getApplication(), hours, replace = true)
+        _message.value = "Alerts every ${hours}h"
+    }
+
+    fun setLockGraceMs(ms: Long) {
+        prefs.lockGraceMs = ms
     }
 
     fun setCurrentSite(site: CatalogSite) {
@@ -140,6 +174,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun dismissUpdate() {
         _update.value?.let { prefs.dismissedUpdateVersion = it.versionName }
         _update.value = null
+        _downloadedUpdate.value = null
+    }
+
+    fun downloadAndInstallUpdate(context: android.content.Context) {
+        val update = _update.value ?: return
+        val existing = _downloadedUpdate.value
+        if (existing != null && existing.exists()) {
+            _message.value = UpdateInstaller.install(context, existing) ?: "Opening installer"
+            return
+        }
+        if (update.apkUrl.isBlank()) {
+            _message.value = "No APK attached to this release"
+            return
+        }
+        viewModelScope.launch {
+            _installingUpdate.value = true
+            try {
+                val file = withContext(Dispatchers.IO) { UpdateInstaller.download(context, update.apkUrl) }
+                _downloadedUpdate.value = file
+                _message.value = UpdateInstaller.install(context, file) ?: "Opening installer"
+            } catch (e: Exception) {
+                _message.value = e.message ?: "Could not download update"
+            } finally {
+                _installingUpdate.value = false
+            }
+        }
     }
 
     suspend fun exportBackup(): String = withContext(Dispatchers.IO) { backupManager.exportJson() }
@@ -156,6 +216,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     app.bookmarkRepository.replaceAll(emptyList())
                     app.historyRepository.clear()
                     app.savedSearchRepository.replaceAll(emptyList())
+                    app.viewedListingRepository.replaceAll(emptyList())
                     com.nyaa.aniyaa.data.network.AppHttpClient.clearCache()
                 }
                 _message.value = "Local data cleared"
@@ -165,12 +226,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun importBackup(json: String) {
+    fun importBackup(json: String, merge: Boolean = false) {
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { backupManager.importJson(json) }
-                SavedSearchWorker.enqueue(getApplication())
-                _message.value = "Backup restored"
+                withContext(Dispatchers.IO) { backupManager.importJson(json, merge) }
+                SavedSearchWorker.enqueue(getApplication(), replace = true)
+                _message.value = if (merge) "Backup merged" else "Backup restored"
             } catch (e: Exception) {
                 _message.value = e.message ?: "Could not restore backup"
             }

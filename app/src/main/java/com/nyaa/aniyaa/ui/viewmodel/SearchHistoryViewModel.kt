@@ -7,6 +7,7 @@ import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.data.model.SavedSearch
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.SearchParams
+import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.work.SavedSearchWorker
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,11 +19,15 @@ class SearchHistoryViewModel(application: Application) : AndroidViewModel(applic
     private val app = application as AniyaaApplication
     private val historyRepository = app.historyRepository
     private val savedSearchRepository = app.savedSearchRepository
+    private val viewedRepository = app.viewedListingRepository
 
     val history: StateFlow<List<SearchHistoryEntry>> = historyRepository.observe()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val savedSearches: StateFlow<List<SavedSearch>> = savedSearchRepository.observe()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val viewed: StateFlow<List<Torrent>> = viewedRepository.observe()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun addEntry(query: String) {
@@ -52,9 +57,21 @@ class SearchHistoryViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             savedSearchRepository.update(search.copy(notify = !search.notify))
             if (!search.notify) {
-                SavedSearchWorker.enqueue(getApplication())
+                SavedSearchWorker.enqueue(getApplication(), replace = true)
             }
         }
+    }
+
+    fun recordViewed(torrent: Torrent) {
+        viewModelScope.launch { viewedRepository.add(torrent) }
+    }
+
+    fun removeViewed(torrent: Torrent) {
+        viewModelScope.launch { viewedRepository.remove(torrent) }
+    }
+
+    fun clearViewed() {
+        viewModelScope.launch { viewedRepository.clear() }
     }
 
     suspend fun savedSearchById(id: Long): SavedSearch? = savedSearchRepository.getById(id)

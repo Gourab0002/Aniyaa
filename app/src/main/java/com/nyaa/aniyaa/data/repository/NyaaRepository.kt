@@ -109,6 +109,26 @@ class NyaaRepository(
         }
     }
 
+    suspend fun probe(baseUrl: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            runCatchingRequest {
+                val url = "${baseUrl.trimEnd('/')}/?page=rss"
+                val request = requestBuilder(url)
+                    .cacheControl(CacheControl.FORCE_NETWORK)
+                    .build()
+                client.newCall(request).await().use { response ->
+                    if (!response.isSuccessful) {
+                        throw HttpException(response.code, "HTTP ${response.code}: ${response.message}")
+                    }
+                    val body = response.body?.string().orEmpty()
+                    if (body.isBlank()) {
+                        throw IllegalStateException("Empty response")
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun fetchTorrent(
         torrentId: String,
         fallback: Torrent? = null,

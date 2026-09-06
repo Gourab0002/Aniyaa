@@ -23,6 +23,19 @@ class FileTreeTest {
     }
 
     @Test
+    fun filterFileEntries_matchesPath() {
+        val files = listOf(
+            TorrentFileEntry("Show/Episode 01.mkv", "1 GiB"),
+            TorrentFileEntry("Show/Episode 02.mkv", "1 GiB"),
+            TorrentFileEntry("Show/NFO.txt", "12 KiB")
+        )
+        val filtered = filterFileEntries(files, "nfo")
+        assertEquals(1, filtered.size)
+        assertEquals("Show/NFO.txt", filtered.first().name)
+        assertEquals(files, filterFileEntries(files, "  "))
+    }
+
+    @Test
     fun parseAndFormatSize() {
         assertEquals(1024L * 1024L, parseSizeBytes("1.0 MiB"))
         assertTrue(totalSizeLabel(listOf(TorrentFileEntry("a", "1.0 MiB"), TorrentFileEntry("b", "1.0 MiB"))).contains("2.0"))

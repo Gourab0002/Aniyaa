@@ -42,6 +42,19 @@ class BookmarkRepository(private val database: AppDatabase) {
             )
         }
     }
+
+    suspend fun merge(torrents: List<Torrent>) {
+        if (torrents.isEmpty()) return
+        val existing = dao.getAll().map { it.identity }.toSet()
+        val incoming = torrents
+            .filter { it.bookmarkKey() !in existing }
+            .mapIndexed { index, torrent ->
+                torrent.withMagnet().toBookmarkEntity(
+                    addedAt = if (torrent.addedAt > 0L) torrent.addedAt else System.currentTimeMillis() - index
+                )
+            }
+        if (incoming.isNotEmpty()) dao.upsertAll(incoming)
+    }
 }
 
 fun List<Torrent>.filteredAndSorted(query: String, sort: BookmarkSort): List<Torrent> {

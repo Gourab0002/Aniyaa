@@ -12,6 +12,7 @@ import com.nyaa.aniyaa.data.repository.BookmarkRepository
 import com.nyaa.aniyaa.data.repository.SavedSearchRepository
 import com.nyaa.aniyaa.data.repository.SearchHistoryRepository
 import com.nyaa.aniyaa.data.repository.NyaaRepository
+import com.nyaa.aniyaa.data.repository.ViewedListingRepository
 import com.nyaa.aniyaa.ui.lock.AppLockController
 import com.nyaa.aniyaa.work.SavedSearchWorker
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,8 @@ class AniyaaApplication : Application() {
         private set
     lateinit var nyaaRepository: NyaaRepository
         private set
+    lateinit var viewedListingRepository: ViewedListingRepository
+        private set
     val lockController = AppLockController()
 
     override fun onCreate() {
@@ -48,14 +51,19 @@ class AniyaaApplication : Application() {
         historyRepository = SearchHistoryRepository(database)
         savedSearchRepository = SavedSearchRepository(database)
         nyaaRepository = NyaaRepository()
+        viewedListingRepository = ViewedListingRepository(database)
         applicationScope.launch {
             database.migrateFromLegacy(this@AniyaaApplication, prefs)
         }
         SavedSearchWorker.enqueue(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                lockController.onForeground(prefs.lockEnabled, prefs.hasPin, prefs.lockGraceMs)
+            }
+
             override fun onStop(owner: LifecycleOwner) {
                 if (prefs.lockEnabled) {
-                    lockController.lock()
+                    lockController.onBackground()
                 }
             }
         })

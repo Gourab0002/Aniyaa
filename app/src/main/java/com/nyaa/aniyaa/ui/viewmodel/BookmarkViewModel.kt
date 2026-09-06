@@ -10,7 +10,13 @@ import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.repository.filteredAndSorted
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,29 +100,42 @@ class BookmarkViewModel(application: Application) : AndroidViewModel(application
         if (_refreshing.value) return
         viewModelScope.launch {
             _refreshing.value = true
-            var updated = 0
-            var failed = 0
-            allBookmarks.value.forEach { torrent ->
-                val id = torrent.id
-                if (id.isBlank()) return@forEach
-                try {
-                    nyaa.fetchTorrent(id, torrent, torrent.site).onSuccess {
-                        repository.update(it.copy(addedAt = torrent.addedAt, site = torrent.site))
-                        updated++
-                    }.onFailure {
-                        failed++
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    failed++
+            val updated = AtomicInteger(0)
+            val failed = AtomicInteger(0)
+            val semaphore = Semaphore(3)
+            try {
+                coroutineScope {
+                    allBookmarks.value.map { torrent ->
+                        async {
+                            val id = torrent.id
+                            if (id.isBlank()) return@async
+                            semaphore.withPermit {
+                                try {
+                                    nyaa.fetchTorrent(id, torrent, torrent.site).onSuccess {
+                                        repository.update(it.copy(addedAt = torrent.addedAt, site = torrent.site))
+                                        updated.incrementAndGet()
+                                    }.onFailure {
+                                        failed.incrementAndGet()
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    failed.incrementAndGet()
+                                }
+                            }
+                        }
+                    }.awaitAll()
                 }
+            } finally {
+                _refreshing.value = false
             }
-            _refreshing.value = false
+            val updatedCount = updated.get()
+            val failedCount = failed.get()
             _message.value = when {
-                updated > 0 && failed == 0 -> "Updated $updated bookmark${if (updated == 1) "" else "s"}"
-                updated > 0 -> "Updated $updated, $failed failed"
-                failed > 0 -> "Could not refresh bookmarks"
+                updatedCount > 0 && failedCount == 0 ->
+                    "Updated $updatedCount bookmark${if (updatedCount == 1) "" else "s"}"
+                updatedCount > 0 -> "Updated $updatedCount, $failedCount failed"
+                failedCount > 0 -> "Could not refresh bookmarks"
                 else -> "No bookmarks to refresh"
             }
         }

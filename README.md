@@ -29,7 +29,7 @@ It is **not** an official nyaa.si or sukebei.nyaa.si app, and it is **not** a to
 3. Open the downloaded file. If Android warns that the app isn’t from the Play Store, choose **Install anyway**. You may need to allow your browser (or Files) to install apps — Android will show a switch for that.
 4. Open **Aniyaa** from your app drawer.
 
-To update later, download a newer APK from the same [Releases](https://github.com/Gourab0002/Aniyaa/releases) page and install it over the old one. You won’t lose bookmarks.
+To update later, download a newer APK from the same [Releases](https://github.com/Gourab0002/Aniyaa/releases) page and install it over the old one, or use **Settings → Updates → Install**. You won’t lose bookmarks. [Obtainium](https://github.com/ImranR98/Obtainium) can watch that releases URL for you.
 
 If you previously used **Sukiniyaa**, install Aniyaa separately and export/import a backup from Settings if you want to keep saved data. The two apps use different package names, so they cannot update in place.
 
@@ -38,7 +38,7 @@ If you previously used **Sukiniyaa**, install Aniyaa separately and export/impor
 ## How to use it
 
 **Search**  
-Type in the search bar and press search, or tap **Show latest**. Category chips (Anime, Audio, and so on) sit under the bar. **Trusted** and **No remakes** are one tap. A dot on the filter button means extra filters are on.
+Latest listings load when you open the app (you can turn that off in Settings). Type in the search bar and press search, or tap **Show latest**. Use `user:Name` to find an uploader. Category chips (Anime, Audio, and so on) sit under the bar. **Trusted** and **No remakes** are one tap. A dot on the filter button means extra filters are on. Long-press a result for magnet, bookmark, share, or follow a show.
 
 **Filters**  
 The filter button opens sort options and subcategories (**More**). You can also save the current search from that sheet.
@@ -61,16 +61,16 @@ From the listing you can:
 Star a listing to find it later. Swipe a bookmark left to remove it. When **All** catalogs are shown, each bookmark is labeled Nyaa or Sukebei.
 
 **History**  
-Recent searches are on the **History** tab. Saved searches can notify you of new results (Aniyaa will ask for notification permission).
+Recent searches and recently viewed listings are on the **History** tab. Saved searches can notify you of new results (Aniyaa will ask for notification permission). You can choose how often alerts run in Settings.
 
 **Open from the browser**  
-Links to nyaa.si or sukebei.nyaa.si listings and searches can open in Aniyaa.
+Links to nyaa.si or sukebei.nyaa.si listings and searches can open in Aniyaa, including `http` and `www` URLs. A Sukebei link asks for the 18+ confirmation if that catalog is still off.
 
 **Look and feel**  
 Settings has **Material You** (wallpaper colors on Android 12+), extra palettes, light/dark mode, default category and sort, and a preferred torrent app.
 
 **Privacy**  
-App lock (PIN or biometrics), hide screenshots, or hide from recents. Export or reset local data from Settings.
+App lock (PIN pad or biometrics), a lock delay, hide screenshots, or hide from recents. Export or reset local data from Settings. Import can merge or replace.
 
 ---
 
@@ -82,7 +82,7 @@ App lock (PIN or biometrics), hide screenshots, or hide from recents. Export or 
 
 Bookmarks, search history, and saved searches stay on your device. Aniyaa does not create an account.
 
-If nyaa.si or sukebei.nyaa.si is blocked, set a mirror URL for that catalog in Settings.
+If nyaa.si or sukebei.nyaa.si is blocked, pick or paste a mirror URL in Settings and tap **Test**.
 
 ---
 

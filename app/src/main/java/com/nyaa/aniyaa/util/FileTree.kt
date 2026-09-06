@@ -12,6 +12,12 @@ data class FileNode(
     val children: List<FileNode> = emptyList()
 )
 
+fun filterFileEntries(files: List<TorrentFileEntry>, query: String): List<TorrentFileEntry> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return files
+    return files.filter { it.name.contains(needle, ignoreCase = true) }
+}
+
 fun buildFileTree(files: List<TorrentFileEntry>): List<FileNode> {
     if (files.isEmpty()) return emptyList()
     val root = mutableMapOf<String, MutableNode>()

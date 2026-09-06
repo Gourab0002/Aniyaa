@@ -15,6 +15,8 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -119,7 +121,11 @@ import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.data.prefs.AppPreferences
+import com.nyaa.aniyaa.util.copyText
+import com.nyaa.aniyaa.util.shareText
+import com.nyaa.aniyaa.util.torrentShareText
 import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
@@ -156,9 +162,10 @@ fun SearchScreen(
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
-    val prefs = remember { AppPreferences(context) }
+    val prefs = AniyaaApplication.instance.prefs
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var followSave by remember { mutableStateOf<Pair<String, SearchParams>?>(null) }
     var pendingSave by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val pending = pendingSave
@@ -295,6 +302,14 @@ fun SearchScreen(
                             }
                         }
                     }
+                }
+                if (searchFocused) {
+                    Text(
+                        text = "Tip: user:Name finds that uploader’s listings",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, top = 6.dp)
+                    )
                 }
                 if (prefs.sukebeiEnabled) {
                     Spacer(Modifier.height(8.dp))
@@ -456,6 +471,23 @@ fun SearchScreen(
                     if (error != null) scope.launch { snackbarHostState.showSnackbar(error) }
                 },
                 onToggleBookmark = { torrent -> bookmarkViewModel.toggleBookmark(torrent) },
+                onCopyMagnet = { torrent ->
+                    copyText(context, "Magnet Link", torrent.resolvedMagnet())
+                    scope.launch { snackbarHostState.showSnackbar("Copied magnet") }
+                },
+                onCopyTitle = { torrent ->
+                    copyText(context, "Title", torrent.title)
+                    scope.launch { snackbarHostState.showSnackbar("Copied title") }
+                },
+                onShare = { torrent ->
+                    shareText(context, torrentShareText(torrent))?.let { msg ->
+                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                    }
+                },
+                onFollow = { name, query ->
+                    followSave = name to SearchParams(query = query, site = uiState.searchParams.site)
+                    showSaveDialog = true
+                },
                 onSearchQuery = { text ->
                     viewModel.applyParams(SearchParams(query = text, site = uiState.searchParams.site))
                 },
@@ -527,18 +559,25 @@ fun SearchScreen(
     }
 
     if (showSaveDialog) {
+        val follow = followSave
         SaveSearchDialog(
-            defaultName = query.ifBlank { "Latest listings" },
-            onDismiss = { showSaveDialog = false },
+            defaultName = follow?.first ?: query.ifBlank { "Latest listings" },
+            onDismiss = {
+                showSaveDialog = false
+                followSave = null
+            },
             onSave = { name, notify ->
                 showSaveDialog = false
+                val params = follow?.second
+                followSave = null
                 if (notify && !hasNotificationPermission(context) && Build.VERSION.SDK_INT >= 33) {
                     pendingSave = name to true
                     notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
                     if (notify) prepareSavedSearchAlerts(context)
                     scope.launch {
-                        viewModel.saveCurrentSearch(name, notify)
+                        if (params != null) viewModel.saveSearch(params, name, notify)
+                        else viewModel.saveCurrentSearch(name, notify)
                         snackbarHostState.showSnackbar("Search saved")
                     }
                 }
@@ -597,6 +636,10 @@ private fun SearchResultsBody(
     onLoadMore: () -> Unit,
     onMagnet: (Torrent) -> Unit,
     onToggleBookmark: (Torrent) -> Unit,
+    onCopyMagnet: (Torrent) -> Unit,
+    onCopyTitle: (Torrent) -> Unit,
+    onShare: (Torrent) -> Unit,
+    onFollow: (String, String) -> Unit,
     onSearchQuery: (String) -> Unit,
     onOpenUser: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -754,7 +797,12 @@ private fun SearchResultsBody(
                                 onClick = onTorrentClick,
                                 isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
                                 showSiteBadge = false,
+                                onMagnet = { onMagnet(torrent) },
+                                onCopyMagnet = { onCopyMagnet(torrent) },
                                 onToggleBookmark = { onToggleBookmark(torrent) },
+                                onCopyTitle = { onCopyTitle(torrent) },
+                                onShare = { onShare(torrent) },
+                                onFollow = onFollow,
                                 onSearchQuery = onSearchQuery,
                                 onOpenUser = onOpenUser
                             )
@@ -1093,7 +1141,7 @@ private fun SearchSkeletonCard(alpha: Float) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TorrentCard(
     torrent: Torrent,
@@ -1103,16 +1151,28 @@ fun TorrentCard(
     onMagnet: (() -> Unit)? = null,
     onCopyMagnet: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
+    onCopyTitle: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onFollow: ((String, String) -> Unit)? = null,
     onSearchQuery: ((String) -> Unit)? = null,
     onOpenUser: ((String) -> Unit)? = null
 ) {
+    var menu by remember { mutableStateOf(false) }
+    val parsed = remember(torrent.title) { parseReleaseTitle(torrent.title) }
+    val hasMenu = onMagnet != null || onCopyMagnet != null || onToggleBookmark != null ||
+        onCopyTitle != null || onShare != null || onFollow != null
     Card(
-        onClick = { onClick(torrent) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onClick(torrent) },
+                onLongClick = { if (hasMenu) menu = true }
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         shape = RoundedCornerShape(16.dp)
     ) {
+        Box {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = torrent.title,
@@ -1296,6 +1356,45 @@ fun TorrentCard(
                     }
                 }
             }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (onMagnet != null) {
+                DropdownMenuItem(text = { Text("Open magnet") }, onClick = { menu = false; onMagnet() })
+            }
+            if (onCopyMagnet != null) {
+                DropdownMenuItem(text = { Text("Copy magnet") }, onClick = { menu = false; onCopyMagnet() })
+            }
+            if (onCopyTitle != null) {
+                DropdownMenuItem(text = { Text("Copy title") }, onClick = { menu = false; onCopyTitle() })
+            }
+            if (onToggleBookmark != null) {
+                DropdownMenuItem(
+                    text = { Text(if (isBookmarked) "Remove bookmark" else "Bookmark") },
+                    onClick = { menu = false; onToggleBookmark() }
+                )
+            }
+            if (onShare != null) {
+                DropdownMenuItem(text = { Text("Share") }, onClick = { menu = false; onShare() })
+            }
+            if (onFollow != null && parsed.show != null) {
+                DropdownMenuItem(
+                    text = { Text("Follow “${parsed.show}”") },
+                    onClick = {
+                        menu = false
+                        onFollow(parsed.show, parsed.show)
+                    }
+                )
+            }
+            if (onFollow != null && parsed.group != null) {
+                DropdownMenuItem(
+                    text = { Text("Follow [${parsed.group}]") },
+                    onClick = {
+                        menu = false
+                        onFollow(parsed.group, parsed.group)
+                    }
+                )
+            }
+        }
         }
     }
 }

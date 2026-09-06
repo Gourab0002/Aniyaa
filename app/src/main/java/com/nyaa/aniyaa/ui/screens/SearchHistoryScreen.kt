@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -60,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.SavedSearch
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
+import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import com.nyaa.aniyaa.util.hasNotificationPermission
 import com.nyaa.aniyaa.util.prepareSavedSearchAlerts
@@ -72,13 +75,17 @@ import java.util.Locale
 fun SearchHistoryScreen(
     onHistoryItemClick: (SearchHistoryEntry) -> Unit,
     onSavedSearchClick: (SavedSearch) -> Unit,
+    onTorrentClick: (Torrent) -> Unit = {},
     searchHistoryViewModel: SearchHistoryViewModel = viewModel(),
     bottomPadding: Dp = 0.dp
 ) {
     val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
     val saved by searchHistoryViewModel.savedSearches.collectAsStateWithLifecycle()
+    val viewed by searchHistoryViewModel.viewed.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingNotifyId by remember { mutableStateOf<Long?>(null) }
+    var confirmClearHistory by remember { mutableStateOf(false) }
+    var pendingDeleteSaved by remember { mutableStateOf<SavedSearch?>(null) }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val id = pendingNotifyId
         pendingNotifyId = null
@@ -98,7 +105,7 @@ fun SearchHistoryScreen(
                 },
                 actions = {
                     if (history.isNotEmpty()) {
-                        IconButton(onClick = { searchHistoryViewModel.clearHistory() }) {
+                        IconButton(onClick = { confirmClearHistory = true }) {
                             Icon(
                                 Icons.Default.DeleteSweep,
                                 contentDescription = "Clear all history",
@@ -117,7 +124,7 @@ fun SearchHistoryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (history.isEmpty() && saved.isEmpty()) {
+            if (history.isEmpty() && saved.isEmpty() && viewed.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -168,6 +175,24 @@ fun SearchHistoryScreen(
                         bottom = 8.dp + bottomPadding
                     )
                 ) {
+                    if (viewed.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Recently viewed",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                        items(viewed.take(12), key = { "viewed-${it.bookmarkKey()}" }) { torrent ->
+                            TorrentCard(
+                                torrent = torrent,
+                                onClick = onTorrentClick,
+                                showSiteBadge = true
+                            )
+                        }
+                    }
                     if (saved.isNotEmpty()) {
                         item {
                             Text(
@@ -196,7 +221,7 @@ fun SearchHistoryScreen(
                                         searchHistoryViewModel.toggleNotify(search)
                                     }
                                 },
-                                onDelete = { searchHistoryViewModel.deleteSavedSearch(search.id) }
+                                onDelete = { pendingDeleteSaved = search }
                             )
                         }
                     }
@@ -251,6 +276,35 @@ fun SearchHistoryScreen(
                 }
             }
         }
+    }
+    if (confirmClearHistory) {
+        AlertDialog(
+            onDismissRequest = { confirmClearHistory = false },
+            title = { Text("Clear search history?") },
+            text = { Text("This removes recent searches. Saved searches are kept.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    searchHistoryViewModel.clearHistory()
+                    confirmClearHistory = false
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearHistory = false }) { Text("Cancel") } }
+        )
+    }
+    val deleteSaved = pendingDeleteSaved
+    if (deleteSaved != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteSaved = null },
+            title = { Text("Delete saved search?") },
+            text = { Text("“${deleteSaved.displayName()}” will be removed, including alerts.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    searchHistoryViewModel.deleteSavedSearch(deleteSaved.id)
+                    pendingDeleteSaved = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteSaved = null }) { Text("Cancel") } }
+        )
     }
 }
 

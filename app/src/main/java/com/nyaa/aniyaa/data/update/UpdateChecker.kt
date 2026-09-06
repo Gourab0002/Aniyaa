@@ -8,7 +8,8 @@ import org.json.JSONObject
 data class AppUpdate(
     val versionName: String,
     val htmlUrl: String,
-    val notes: String
+    val notes: String,
+    val apkUrl: String = ""
 )
 
 object UpdateChecker {
@@ -35,7 +36,8 @@ object UpdateChecker {
                         versionName = tag,
                         htmlUrl = json.optString("html_url")
                             .ifBlank { "https://github.com/Gourab0002/Aniyaa/releases/latest" },
-                        notes = json.optString("body")
+                        notes = json.optString("body"),
+                        apkUrl = apkAssetUrl(json)
                     )
                 )
             }
@@ -57,4 +59,17 @@ object UpdateChecker {
         }
         return false
     }
+
+    internal fun apkAssetUrl(json: JSONObject): String {
+        val assets = json.optJSONArray("assets") ?: return ""
+        val pairs = ArrayList<Pair<String, String>>(assets.length())
+        for (i in 0 until assets.length()) {
+            val asset = assets.optJSONObject(i) ?: continue
+            pairs += asset.optString("name") to asset.optString("browser_download_url")
+        }
+        return apkAssetUrl(pairs)
+    }
+
+    internal fun apkAssetUrl(assets: List<Pair<String, String>>): String =
+        assets.firstOrNull { it.first.endsWith(".apk", ignoreCase = true) }?.second.orEmpty()
 }

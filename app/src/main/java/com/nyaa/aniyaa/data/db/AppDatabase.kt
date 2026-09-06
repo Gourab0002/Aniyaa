@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.FilterOption
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
@@ -15,18 +17,55 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 @Database(
-    entities = [BookmarkEntity::class, HistoryEntity::class, SavedSearchEntity::class],
-    version = 1,
+    entities = [
+        BookmarkEntity::class,
+        HistoryEntity::class,
+        SavedSearchEntity::class,
+        ViewedListingEntity::class
+    ],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun historyDao(): HistoryDao
     abstract fun savedSearchDao(): SavedSearchDao
+    abstract fun viewedListingDao(): ViewedListingDao
 
     companion object {
         @Volatile
         private var instance: AppDatabase? = null
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS viewed_listings (
+                        identity TEXT NOT NULL,
+                        site TEXT NOT NULL,
+                        torrentId TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        link TEXT NOT NULL,
+                        guid TEXT NOT NULL,
+                        pubDate TEXT NOT NULL,
+                        seeders INTEGER NOT NULL,
+                        leechers INTEGER NOT NULL,
+                        downloads INTEGER NOT NULL,
+                        infoHash TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        size TEXT NOT NULL,
+                        comments INTEGER NOT NULL,
+                        trusted INTEGER NOT NULL,
+                        remake INTEGER NOT NULL,
+                        magnetLink TEXT NOT NULL,
+                        submitter TEXT NOT NULL,
+                        viewedAt INTEGER NOT NULL,
+                        PRIMARY KEY(identity)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
 
         fun get(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
@@ -34,7 +73,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "aniyaa.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
         }
     }

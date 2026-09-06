@@ -19,6 +19,7 @@ import com.nyaa.aniyaa.data.model.toSavedSearch
 import com.nyaa.aniyaa.data.network.SiteConfig
 import com.nyaa.aniyaa.data.network.toUserMessage
 import com.nyaa.aniyaa.data.repository.mergeSearchPages
+import com.nyaa.aniyaa.work.SavedSearchWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +56,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null
     private var requestGeneration: Long = 0L
+    private val siteSnapshots = mutableMapOf<CatalogSite, SiteSnapshot>()
 
     init {
         if (!prefs.sukebeiEnabled && _uiState.value.searchParams.site.nsfw) {
@@ -65,6 +67,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
         restoreFromCache()
     }
+
+    private data class SiteSnapshot(
+        val query: String,
+        val state: SearchUiState
+    )
 
     fun updateQuery(query: String) {
         _query.value = query
@@ -88,9 +95,22 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun switchSite(site: CatalogSite) {
         if (site.nsfw && !prefs.sukebeiEnabled) return
-        if (_uiState.value.searchParams.site == site) return
+        val current = _uiState.value.searchParams.site
+        if (current == site) return
+        siteSnapshots[current] = SiteSnapshot(_query.value, _uiState.value)
         prefs.currentSite = site
         SiteConfig.currentSite = site
+        val restored = siteSnapshots[site]
+        if (restored != null) {
+            _query.value = restored.query
+            _uiState.value = restored.state.copy(
+                searchParams = restored.state.searchParams.copy(site = site).withValidCategory()
+            )
+            if (restored.state.torrents.isEmpty() && (prefs.loadLatestOnStart || restored.query.isNotBlank())) {
+                search(recordHistory = false)
+            }
+            return
+        }
         val defaults = prefs.defaultSearchParams(site).copy(query = _query.value)
         _uiState.update {
             it.copy(
@@ -112,6 +132,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun applyParams(params: SearchParams, recordHistory: Boolean = true) {
         val valid = params.withValidCategory()
+        val current = _uiState.value.searchParams.site
+        if (valid.site != current) {
+            siteSnapshots[current] = SiteSnapshot(_query.value, _uiState.value)
+        }
         if (valid.site.nsfw && !prefs.sukebeiEnabled) {
             prefs.sukebeiEnabled = true
         }
@@ -152,19 +176,22 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 .getOrNull()
                 ?.getOrNull()
                 .orEmpty()
-            if (cached.isEmpty()) return@launch
-            val (merged, canLoadMore) = mergeSearchPages(emptyList(), cached, replace = true)
-            _uiState.update {
-                it.copy(
-                    torrents = merged,
-                    hasSearched = true,
-                    isLoading = false,
-                    canLoadMore = canLoadMore,
-                    searchParams = params,
-                    error = null
-                )
+            if (cached.isNotEmpty()) {
+                val (merged, canLoadMore) = mergeSearchPages(emptyList(), cached, replace = true)
+                _uiState.update {
+                    it.copy(
+                        torrents = merged,
+                        hasSearched = true,
+                        isLoading = false,
+                        canLoadMore = canLoadMore,
+                        searchParams = params,
+                        error = null
+                    )
+                }
             }
-            search(recordHistory = false)
+            if (prefs.loadLatestOnStart || cached.isNotEmpty() || params.query.isNotBlank()) {
+                search(recordHistory = false)
+            }
         }
     }
 
@@ -315,6 +342,14 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     suspend fun saveCurrentSearch(name: String, notify: Boolean): Long {
         val params = _uiState.value.searchParams.copy(query = _query.value)
-        return savedSearchRepository.add(params.toSavedSearch(name, notify))
+        return saveSearch(params, name, notify)
+    }
+
+    suspend fun saveSearch(params: SearchParams, name: String, notify: Boolean): Long {
+        val id = savedSearchRepository.add(params.toSavedSearch(name, notify))
+        if (notify) {
+            SavedSearchWorker.enqueue(getApplication(), replace = true)
+        }
+        return id
     }
 }

@@ -14,7 +14,6 @@ import com.nyaa.aniyaa.data.model.filterByValue
 import com.nyaa.aniyaa.data.model.sortFieldByValue
 import com.nyaa.aniyaa.data.model.sortOrderByValue
 import com.nyaa.aniyaa.data.network.SiteConfig
-import java.security.MessageDigest
 import java.security.SecureRandom
 
 class AppPreferences(context: Context) {
@@ -87,8 +86,30 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_ROOM_MIGRATED, false)
         set(value) = prefs.edit().putBoolean(KEY_ROOM_MIGRATED, value).apply()
 
+    var loadLatestOnStart: Boolean
+        get() = prefs.getBoolean(KEY_LOAD_LATEST, true)
+        set(value) = prefs.edit().putBoolean(KEY_LOAD_LATEST, value).apply()
+
+    var savedSearchIntervalHours: Int
+        get() = prefs.getInt(KEY_ALERT_HOURS, 6).let { hours ->
+            ALERT_INTERVAL_HOURS.minByOrNull { kotlin.math.abs(it - hours) } ?: 6
+        }
+        set(value) = prefs.edit().putInt(KEY_ALERT_HOURS, value.coerceIn(1, 24)).apply()
+
+    var lockGraceMs: Long
+        get() {
+            val stored = prefs.getLong(KEY_LOCK_GRACE, 15_000L)
+            return LOCK_GRACE_OPTIONS.minByOrNull { kotlin.math.abs(it - stored) } ?: 15_000L
+        }
+        set(value) = prefs.edit().putLong(KEY_LOCK_GRACE, value.coerceAtLeast(0L)).apply()
+
     val hasPin: Boolean
         get() = !prefs.getString(KEY_PIN_HASH, "").isNullOrBlank()
+
+    fun pinLockRemainingMs(now: Long = System.currentTimeMillis()): Long {
+        val until = prefs.getLong(KEY_PIN_LOCK_UNTIL, 0L)
+        return (until - now).coerceAtLeast(0L)
+    }
 
     fun baseUrl(site: CatalogSite): String {
         val stored = prefs.getString(baseUrlKey(site), "").orEmpty()
@@ -164,24 +185,50 @@ class AppPreferences(context: Context) {
 
     fun setPin(pin: String) {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val hash = hashPin(pin, salt)
+        val algorithm = PinHasher.preferredAlgorithm()
+        val hash = PinHasher.hash(pin, salt, algorithm)
         prefs.edit()
             .putString(KEY_PIN_SALT, salt.toHex())
             .putString(KEY_PIN_HASH, hash)
+            .putString(KEY_PIN_ALGO, algorithm)
+            .remove(KEY_PIN_FAILURES)
+            .remove(KEY_PIN_LOCK_UNTIL)
             .apply()
     }
 
-    fun verifyPin(pin: String): Boolean {
+    fun verifyPin(pin: String, now: Long = System.currentTimeMillis()): Boolean {
+        if (pinLockRemainingMs(now) > 0L) return false
         val saltHex = prefs.getString(KEY_PIN_SALT, "").orEmpty()
         val stored = prefs.getString(KEY_PIN_HASH, "").orEmpty()
         if (saltHex.isBlank() || stored.isBlank()) return false
-        return hashPin(pin, saltHex.fromHex()) == stored
+        val salt = saltHex.fromHex()
+        val algorithm = prefs.getString(KEY_PIN_ALGO, "").orEmpty().ifBlank { PinHasher.LEGACY_SHA256 }
+        val matches = PinHasher.hash(pin, salt, algorithm) == stored ||
+            (algorithm != PinHasher.LEGACY_SHA256 && PinHasher.hash(pin, salt, PinHasher.LEGACY_SHA256) == stored)
+        if (matches) {
+            if (algorithm == PinHasher.LEGACY_SHA256) {
+                setPin(pin)
+            } else {
+                prefs.edit().remove(KEY_PIN_FAILURES).remove(KEY_PIN_LOCK_UNTIL).apply()
+            }
+            return true
+        }
+        val failures = prefs.getInt(KEY_PIN_FAILURES, 0) + 1
+        val lockMs = PinHasher.lockoutMillis(failures)
+        prefs.edit()
+            .putInt(KEY_PIN_FAILURES, failures)
+            .putLong(KEY_PIN_LOCK_UNTIL, if (lockMs > 0L) now + lockMs else 0L)
+            .apply()
+        return false
     }
 
     fun clearPin() {
         prefs.edit()
             .remove(KEY_PIN_SALT)
             .remove(KEY_PIN_HASH)
+            .remove(KEY_PIN_ALGO)
+            .remove(KEY_PIN_FAILURES)
+            .remove(KEY_PIN_LOCK_UNTIL)
             .putBoolean(KEY_LOCK_ENABLED, false)
             .apply()
     }
@@ -210,25 +257,26 @@ class AppPreferences(context: Context) {
         private const val KEY_UPDATE_CHECK_AT = "update_check_at"
         private const val KEY_DISMISSED_UPDATE = "dismissed_update"
         private const val KEY_ROOM_MIGRATED = "room_migrated"
+        private const val KEY_LOAD_LATEST = "load_latest_on_start"
+        private const val KEY_ALERT_HOURS = "saved_search_interval_hours"
+        private const val KEY_LOCK_GRACE = "lock_grace_ms"
+        private const val KEY_PIN_ALGO = "pin_algo"
+        private const val KEY_PIN_FAILURES = "pin_failures"
+        private const val KEY_PIN_LOCK_UNTIL = "pin_lock_until"
+
+        val ALERT_INTERVAL_HOURS = listOf(1, 3, 6, 12, 24)
+        val LOCK_GRACE_OPTIONS = listOf(0L, 15_000L, 60_000L, 300_000L)
+
+        fun lockGraceLabel(ms: Long): String = when (ms) {
+            0L -> "Immediately"
+            15_000L -> "15 seconds"
+            60_000L -> "1 minute"
+            300_000L -> "5 minutes"
+            else -> "${ms / 1000} seconds"
+        }
 
         private fun baseUrlKey(site: CatalogSite) = "base_url_${site.id}"
 
         private fun siteKey(base: String, site: CatalogSite) = "${base}_${site.id}"
-
-        fun hashPin(pin: String, salt: ByteArray): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            digest.update(salt)
-            digest.update(pin.toByteArray(Charsets.UTF_8))
-            return digest.digest().toHex()
-        }
-    }
-}
-
-private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
-
-private fun String.fromHex(): ByteArray {
-    if (length % 2 != 0) return ByteArray(0)
-    return ByteArray(length / 2) { i ->
-        substring(i * 2, i * 2 + 2).toInt(16).toByte()
     }
 }

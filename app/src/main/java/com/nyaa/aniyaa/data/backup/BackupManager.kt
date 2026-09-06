@@ -11,6 +11,7 @@ import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.data.repository.BookmarkRepository
 import com.nyaa.aniyaa.data.repository.SavedSearchRepository
 import com.nyaa.aniyaa.data.repository.SearchHistoryRepository
+import com.nyaa.aniyaa.data.repository.ViewedListingRepository
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,11 +19,12 @@ class BackupManager(
     private val bookmarks: BookmarkRepository,
     private val history: SearchHistoryRepository,
     private val savedSearches: SavedSearchRepository,
+    private val viewed: ViewedListingRepository,
     private val prefs: AppPreferences
 ) {
     suspend fun exportJson(): String {
         val root = JSONObject()
-        root.put("version", 2)
+        root.put("version", 3)
         val bookmarkArray = JSONArray()
         bookmarks.getAll().forEach { bookmarkArray.put(torrentToBackupJson(it)) }
         root.put("bookmarks", bookmarkArray)
@@ -58,6 +60,10 @@ class BackupManager(
         }
         root.put("savedSearches", savedArray)
 
+        val viewedArray = JSONArray()
+        viewed.getAll().forEach { viewedArray.put(torrentToBackupJson(it)) }
+        root.put("viewed", viewedArray)
+
         root.put(
             "settings",
             JSONObject().apply {
@@ -72,12 +78,15 @@ class BackupManager(
                 put("preferredTorrentPackage", prefs.preferredTorrentPackage)
                 put("hideScreenshots", prefs.hideScreenshots)
                 put("hideFromRecents", prefs.hideFromRecents)
+                put("loadLatestOnStart", prefs.loadLatestOnStart)
+                put("savedSearchIntervalHours", prefs.savedSearchIntervalHours)
+                put("lockGraceMs", prefs.lockGraceMs)
             }
         )
         return root.toString(2)
     }
 
-    suspend fun importJson(json: String) {
+    suspend fun importJson(json: String, merge: Boolean = false) {
         val root = JSONObject(json)
         val settings = root.optJSONObject("settings")
         val fallbackSite = inferFallbackSite(settings)
@@ -87,7 +96,7 @@ class BackupManager(
         for (i in 0 until bookmarkArray.length()) {
             bookmarkItems += torrentFromBackupJson(bookmarkArray.getJSONObject(i), fallbackSite)
         }
-        bookmarks.replaceAll(bookmarkItems)
+        if (merge) bookmarks.merge(bookmarkItems) else bookmarks.replaceAll(bookmarkItems)
 
         val historyItems = mutableListOf<SearchHistoryEntry>()
         val historyArray = root.optJSONArray("history") ?: JSONArray()
@@ -103,7 +112,7 @@ class BackupManager(
                 sortOrderValue = obj.optString("sortOrderValue", "desc")
             )
         }
-        history.replaceAll(historyItems)
+        if (merge) history.merge(historyItems) else history.replaceAll(historyItems)
 
         val savedItems = mutableListOf<SavedSearch>()
         val savedArray = root.optJSONArray("savedSearches") ?: JSONArray()
@@ -122,7 +131,14 @@ class BackupManager(
                 lastCheckedAt = obj.optLong("lastCheckedAt")
             )
         }
-        savedSearches.replaceAll(savedItems)
+        if (merge) savedSearches.merge(savedItems) else savedSearches.replaceAll(savedItems)
+
+        val viewedItems = mutableListOf<Torrent>()
+        val viewedArray = root.optJSONArray("viewed") ?: JSONArray()
+        for (i in 0 until viewedArray.length()) {
+            viewedItems += torrentFromBackupJson(viewedArray.getJSONObject(i), fallbackSite)
+        }
+        if (merge) viewed.merge(viewedItems) else viewed.replaceAll(viewedItems)
 
         if (settings != null) {
             if (settings.has("themeIndex")) prefs.themeIndex = settings.optInt("themeIndex")
@@ -151,6 +167,11 @@ class BackupManager(
             }
             if (settings.has("hideScreenshots")) prefs.hideScreenshots = settings.optBoolean("hideScreenshots")
             if (settings.has("hideFromRecents")) prefs.hideFromRecents = settings.optBoolean("hideFromRecents")
+            if (settings.has("loadLatestOnStart")) prefs.loadLatestOnStart = settings.optBoolean("loadLatestOnStart")
+            if (settings.has("savedSearchIntervalHours")) {
+                prefs.savedSearchIntervalHours = settings.optInt("savedSearchIntervalHours")
+            }
+            if (settings.has("lockGraceMs")) prefs.lockGraceMs = settings.optLong("lockGraceMs")
         }
     }
 

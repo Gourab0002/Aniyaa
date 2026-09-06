@@ -105,6 +105,7 @@ fun SettingsScreen(
     val message by settingsViewModel.message.collectAsStateWithLifecycle()
     val update by settingsViewModel.update.collectAsStateWithLifecycle()
     val checkingUpdate by settingsViewModel.checkingUpdate.collectAsStateWithLifecycle()
+    val installingUpdate by settingsViewModel.installingUpdate.collectAsStateWithLifecycle()
 
     var currentSite by remember { mutableStateOf(prefs.currentSite) }
     var nyaaBaseUrl by remember { mutableStateOf(prefs.baseUrl(CatalogSite.NYAA)) }
@@ -121,6 +122,10 @@ fun SettingsScreen(
     var showPinDialog by remember { mutableStateOf(false) }
     var pinValue by remember { mutableStateOf("") }
     var showResetDialog by remember { mutableStateOf(false) }
+    var loadLatestOnStart by remember { mutableStateOf(prefs.loadLatestOnStart) }
+    var alertHours by remember { mutableStateOf(prefs.savedSearchIntervalHours) }
+    var lockGraceMs by remember { mutableStateOf(prefs.lockGraceMs) }
+    var pendingImportJson by remember { mutableStateOf<String?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
@@ -139,7 +144,7 @@ fun SettingsScreen(
         if (uri != null) {
             try {
                 val json = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-                settingsViewModel.importBackup(json)
+                pendingImportJson = json
             } catch (e: Exception) {
                 scope.launch { snackbarHostState.showSnackbar(e.message ?: "Import failed") }
             }
@@ -265,6 +270,30 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(28.dp))
             SectionLabel("Search defaults")
+            SettingsSwitchRow(
+                "Load latest on start",
+                "Show the newest listings when you open Search",
+                loadLatestOnStart
+            ) { enabled ->
+                loadLatestOnStart = enabled
+                settingsViewModel.setLoadLatestOnStart(enabled)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Alert interval for saved searches", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.nyaa.aniyaa.data.prefs.AppPreferences.ALERT_INTERVAL_HOURS.forEach { hours ->
+                    FilterChip(
+                        selected = alertHours == hours,
+                        onClick = {
+                            alertHours = hours
+                            settingsViewModel.setSavedSearchIntervalHours(hours)
+                        },
+                        label = { Text("${hours}h") }
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             Text("These defaults apply when you reset filters for ${currentSite.displayName}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(8.dp))
             if (sukebeiEnabled) {
@@ -328,6 +357,19 @@ fun SettingsScreen(
             SectionLabel("Mirrors")
             Text("If a site is blocked, paste a working mirror for that catalog.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.nyaa.aniyaa.data.network.CatalogMirrors.forSite(CatalogSite.NYAA).forEach { url ->
+                    FilterChip(
+                        selected = nyaaBaseUrl == url,
+                        onClick = {
+                            nyaaBaseUrl = url
+                            settingsViewModel.setBaseUrl(CatalogSite.NYAA, url)
+                        },
+                        label = { Text(com.nyaa.aniyaa.data.network.CatalogMirrors.label(url, CatalogSite.NYAA)) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = nyaaBaseUrl,
                 onValueChange = { nyaaBaseUrl = it },
@@ -338,6 +380,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { settingsViewModel.setBaseUrl(CatalogSite.NYAA, nyaaBaseUrl) }) { Text("Save") }
+                OutlinedButton(onClick = { settingsViewModel.testMirror(CatalogSite.NYAA, nyaaBaseUrl) }) { Text("Test") }
                 OutlinedButton(onClick = {
                     nyaaBaseUrl = CatalogSite.NYAA.defaultBase
                     settingsViewModel.setBaseUrl(CatalogSite.NYAA, CatalogSite.NYAA.defaultBase)
@@ -345,6 +388,19 @@ fun SettingsScreen(
             }
             if (sukebeiEnabled) {
                 Spacer(Modifier.height(16.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.nyaa.aniyaa.data.network.CatalogMirrors.forSite(CatalogSite.SUKEBEI).forEach { url ->
+                        FilterChip(
+                            selected = sukebeiBaseUrl == url,
+                            onClick = {
+                                sukebeiBaseUrl = url
+                                settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, url)
+                            },
+                            label = { Text(com.nyaa.aniyaa.data.network.CatalogMirrors.label(url, CatalogSite.SUKEBEI)) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = sukebeiBaseUrl,
                     onValueChange = { sukebeiBaseUrl = it },
@@ -355,6 +411,7 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, sukebeiBaseUrl) }) { Text("Save") }
+                    OutlinedButton(onClick = { settingsViewModel.testMirror(CatalogSite.SUKEBEI, sukebeiBaseUrl) }) { Text("Test") }
                     OutlinedButton(onClick = {
                         sukebeiBaseUrl = CatalogSite.SUKEBEI.defaultBase
                         settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, CatalogSite.SUKEBEI.defaultBase)
@@ -374,6 +431,20 @@ fun SettingsScreen(
                 }
             }
             TextButton(onClick = { showPinDialog = true }) { Text(if (prefs.hasPin) "Change PIN" else "Set PIN") }
+            Text("Lock delay", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.nyaa.aniyaa.data.prefs.AppPreferences.LOCK_GRACE_OPTIONS.forEach { ms ->
+                    FilterChip(
+                        selected = lockGraceMs == ms,
+                        onClick = {
+                            lockGraceMs = ms
+                            settingsViewModel.setLockGraceMs(ms)
+                        },
+                        label = { Text(com.nyaa.aniyaa.data.prefs.AppPreferences.lockGraceLabel(ms)) }
+                    )
+                }
+            }
             SettingsSwitchRow("Hide screenshots", "Block screenshots and recents previews", hideScreenshots) { enabled ->
                 hideScreenshots = enabled
                 settingsViewModel.setHideScreenshots(enabled)
@@ -440,6 +511,30 @@ fun SettingsScreen(
                     dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Cancel") } }
                 )
             }
+            if (pendingImportJson != null) {
+                AlertDialog(
+                    onDismissRequest = { pendingImportJson = null },
+                    title = { Text("Restore backup") },
+                    text = { Text("Merge keeps existing bookmarks and searches. Replace overwrites everything in the backup.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val json = pendingImportJson
+                            pendingImportJson = null
+                            if (json != null) settingsViewModel.importBackup(json, merge = true)
+                        }) { Text("Merge") }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = {
+                                val json = pendingImportJson
+                                pendingImportJson = null
+                                if (json != null) settingsViewModel.importBackup(json, merge = false)
+                            }) { Text("Replace") }
+                            TextButton(onClick = { pendingImportJson = null }) { Text("Cancel") }
+                        }
+                    }
+                )
+            }
 
             Spacer(Modifier.height(28.dp))
             SectionLabel("Updates")
@@ -447,7 +542,17 @@ fun SettingsScreen(
                 Text("Version ${update?.versionName} is available.", color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { openUrl(update?.htmlUrl.orEmpty()) }) { Text("Download") }
+                    Button(
+                        onClick = {
+                            if (update?.apkUrl.isNullOrBlank()) {
+                                openUrl(update?.htmlUrl.orEmpty())
+                            } else {
+                                settingsViewModel.downloadAndInstallUpdate(context)
+                            }
+                        },
+                        enabled = !installingUpdate
+                    ) { Text(if (installingUpdate) "Downloading…" else "Install") }
+                    OutlinedButton(onClick = { openUrl(update?.htmlUrl.orEmpty()) }) { Text("GitHub") }
                     TextButton(onClick = { settingsViewModel.dismissUpdate() }) { Text("Later") }
                 }
             } else {

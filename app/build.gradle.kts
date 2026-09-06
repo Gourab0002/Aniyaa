@@ -37,8 +37,8 @@ android {
         applicationId = "com.nyaa.aniyaa"
         minSdk = 24
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.2.0"
+        versionCode = 5
+        versionName = "2.3.0"
 
         System.getenv("VERSION_NAME")
             ?.removePrefix("v")

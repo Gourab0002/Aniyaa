@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,8 +45,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,14 +75,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.nyaa.aniyaa.data.model.CatalogDeepLink
+import com.nyaa.aniyaa.data.model.CatalogDeepLinks
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.DarkMode
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
-import com.nyaa.aniyaa.data.model.categoryByValue
-import com.nyaa.aniyaa.data.model.filterByValue
-import com.nyaa.aniyaa.data.model.sortFieldByValue
-import com.nyaa.aniyaa.data.model.sortOrderByValue
+import com.nyaa.aniyaa.data.model.stubTorrent
 import com.nyaa.aniyaa.data.network.AppHttpClient
 import com.nyaa.aniyaa.ui.lock.LockScreen
 import com.nyaa.aniyaa.ui.screens.BookmarksScreen
@@ -93,6 +96,7 @@ import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchViewModel
 import com.nyaa.aniyaa.util.HighRefreshRate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 import java.net.URLDecoder
@@ -128,6 +132,7 @@ class MainActivity : AppCompatActivity() {
             var darkMode by remember { mutableStateOf(prefs.darkMode) }
             val locked by app.lockController.locked.collectAsStateWithLifecycle()
             var pinError by remember { mutableStateOf<String?>(null) }
+            var lockRemainingMs by remember { mutableStateOf(0L) }
             val biometricAvailable = remember {
                 BiometricManager.from(this).canAuthenticate(
                     BiometricManager.Authenticators.BIOMETRIC_WEAK
@@ -175,18 +180,31 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
                     if (locked && prefs.lockEnabled && prefs.hasPin) {
+                        LaunchedEffect(locked, lockRemainingMs) {
+                            while (lockRemainingMs > 0L) {
+                                delay(1000)
+                                lockRemainingMs = prefs.pinLockRemainingMs()
+                            }
+                        }
                         LockScreen(
                             error = pinError,
+                            lockRemainingMs = lockRemainingMs,
                             biometricAvailable = biometricAvailable,
                             onUnlockWithPin = { pin ->
-                                if (prefs.verifyPin(pin)) {
+                                val remaining = prefs.pinLockRemainingMs()
+                                if (remaining > 0L) {
+                                    lockRemainingMs = remaining
+                                    pinError = "Too many attempts"
+                                } else if (prefs.verifyPin(pin)) {
                                     pinError = null
+                                    lockRemainingMs = 0L
                                     app.lockController.unlock()
                                 } else {
-                                    pinError = "Wrong PIN"
+                                    lockRemainingMs = prefs.pinLockRemainingMs()
+                                    pinError = if (lockRemainingMs > 0L) "Too many attempts" else "Wrong PIN"
                                 }
                             },
-                            onUnlockWithBiometric = { promptBiometric { pinError = null } }
+                            onUnlockWithBiometric = { promptBiometric { pinError = null; lockRemainingMs = 0L } }
                         )
                     }
                 }
@@ -290,6 +308,8 @@ fun AniyaaApp(
     val bookmarkViewModel: BookmarkViewModel = viewModel()
     val expanded = LocalConfiguration.current.screenWidthDp >= 700
     val showBottomBar = currentRoute?.startsWith("detail") != true
+    val prefs = AniyaaApplication.instance.prefs
+    var pendingNsfwLink by remember { mutableStateOf<CatalogDeepLink?>(null) }
 
     fun openUser(username: String) {
         searchViewModel.applyParams(SearchParams(query = "user:$username"))
@@ -300,80 +320,97 @@ fun AniyaaApp(
         }
     }
 
+    fun goToSearch() {
+        navController.navigate("search") {
+            popUpTo("search") { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+
     val openTorrent = remember(navController, expanded) {
         { torrent: Torrent ->
             selectedTorrent = torrent
+            searchHistoryViewModel.recordViewed(torrent)
             if (!expanded) {
                 navController.navigate("detail/${torrent.site.id}/${encodeNavId(torrent.navId())}")
             }
         }
     }
 
+    fun applyCatalogLink(link: CatalogDeepLink) {
+        if (link.requiresNsfw && !prefs.sukebeiEnabled) {
+            pendingNsfwLink = link
+            return
+        }
+        if (link.viewId != null) {
+            searchViewModel.switchSite(link.site)
+            selectedTorrent = searchViewModel.torrentByNavId(link.viewId, link.site)
+                ?: bookmarkViewModel.torrentByNavId(link.viewId, link.site)
+                ?: stubTorrent(link.viewId, link.site)
+            searchHistoryViewModel.recordViewed(selectedTorrent!!)
+            if (!expanded) {
+                navController.navigate("detail/${link.site.id}/${encodeNavId(link.viewId)}")
+            }
+        } else if (link.savedSearchId != null) {
+            // loaded asynchronously below
+        } else if (link.searchParams != null) {
+            searchViewModel.applyParams(link.searchParams)
+            goToSearch()
+        } else {
+            searchViewModel.switchSite(link.site)
+            goToSearch()
+        }
+    }
+
     LaunchedEffect(pendingDeepLink) {
         val data = pendingDeepLink ?: return@LaunchedEffect
         onDeepLinkConsumed()
-        val host = data.host.orEmpty()
-        val segments = data.pathSegments
-        val linkedSite = CatalogSite.fromHost(host) ?: CatalogSite.fromUrl(data.toString())
-        val viewId = when {
-            host == "view" -> data.lastPathSegment
-            segments.firstOrNull() == "view" -> segments.getOrNull(1)
-            else -> null
-        }?.substringBefore("#")
-        val savedId = if (host == "saved") data.lastPathSegment?.toLongOrNull() else null
-        val site = linkedSite ?: CatalogSite.NYAA
-        if (site.nsfw) {
-            AniyaaApplication.instance.prefs.sukebeiEnabled = true
+        val link = CatalogDeepLinks.parse(data.toString()) ?: return@LaunchedEffect
+        if (link.requiresNsfw && !prefs.sukebeiEnabled) {
+            pendingNsfwLink = link
+            return@LaunchedEffect
         }
-        if (viewId != null) {
-            searchViewModel.switchSite(site)
-            selectedTorrent = searchViewModel.torrentByNavId(viewId, site)
-                ?: bookmarkViewModel.torrentByNavId(viewId, site)
-            if (!expanded) {
-                navController.navigate("detail/${site.id}/${encodeNavId(viewId)}")
-            }
-        } else if (savedId != null) {
-            val saved = searchHistoryViewModel.savedSearchById(savedId)
+        if (link.savedSearchId != null) {
+            val saved = searchHistoryViewModel.savedSearchById(link.savedSearchId)
             if (saved != null) {
                 searchViewModel.applySavedSearch(saved)
-                navController.navigate("search") {
-                    popUpTo("search") { inclusive = true }
-                    launchSingleTop = true
-                }
+                goToSearch()
             }
-        } else {
-            val user = if (segments.firstOrNull() == "user") segments.getOrNull(1).orEmpty() else ""
-            val query = data.getQueryParameter("q").orEmpty()
-            val category = data.getQueryParameter("c")
-            val filter = data.getQueryParameter("f")?.toIntOrNull()
-            val sort = data.getQueryParameter("s")
-            val order = data.getQueryParameter("o")
-            if (user.isNotBlank() || query.isNotBlank() || !category.isNullOrBlank()) {
-                val combined = if (user.isNotBlank()) {
-                    "user:$user ${query}".trim()
-                } else {
-                    query
-                }
-                searchViewModel.applyParams(
-                    SearchParams(
-                        query = combined,
-                        site = site,
-                        category = categoryByValue(category ?: "0_0", site),
-                        filter = filterByValue(filter ?: 0),
-                        sortField = sortFieldByValue(sort ?: "id"),
-                        sortOrder = sortOrderByValue(order ?: "desc")
-                    )
-                )
-                navController.navigate("search") {
-                    popUpTo("search") { inclusive = true }
-                    launchSingleTop = true
-                }
-            } else {
-                searchViewModel.switchSite(site)
-                navController.navigate("search") {
-                    popUpTo("search") { inclusive = true }
-                    launchSingleTop = true
-                }
+            return@LaunchedEffect
+        }
+        applyCatalogLink(link)
+    }
+
+    if (pendingNsfwLink != null) {
+        AlertDialog(
+            onDismissRequest = { pendingNsfwLink = null },
+            title = { Text("Sukebei is 18+") },
+            text = { Text("This link opens Sukebei, which lists adult content. You must be 18 or older to continue.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val link = pendingNsfwLink
+                        pendingNsfwLink = null
+                        if (link != null) {
+                            prefs.sukebeiEnabled = true
+                            applyCatalogLink(link.copy(requiresNsfw = false))
+                        }
+                    }
+                ) { Text("I am 18+") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingNsfwLink = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    fun navigateTab(route: String) {
+        selectedTorrent = null
+        if (currentRoute != route) {
+            navController.navigate(route) {
+                popUpTo("search") { saveState = true }
+                launchSingleTop = true
+                restoreState = true
             }
         }
     }
@@ -381,7 +418,7 @@ fun AniyaaApp(
     Scaffold(
         bottomBar = {
             AnimatedVisibility(
-                visible = showBottomBar,
+                visible = showBottomBar && !expanded,
                 enter = slideInVertically(
                     animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
                 ) { it },
@@ -410,16 +447,7 @@ fun AniyaaApp(
                                 )
                             },
                             selected = selected,
-                            onClick = {
-                                selectedTorrent = null
-                                if (currentRoute != item.route) {
-                                    navController.navigate(item.route) {
-                                        popUpTo("search") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
+                            onClick = { navigateTab(item.route) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 selectedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -436,8 +464,26 @@ fun AniyaaApp(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = if (showBottomBar) innerPadding.calculateBottomPadding() else 0.dp)
+                .padding(bottom = if (showBottomBar && !expanded) innerPadding.calculateBottomPadding() else 0.dp)
         ) {
+            if (expanded && showBottomBar) {
+                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                    bottomNavItems.forEach { item ->
+                        val selected = currentRoute == item.route
+                        NavigationRailItem(
+                            selected = selected,
+                            onClick = { navigateTab(item.route) },
+                            icon = {
+                                Icon(
+                                    if (selected) item.selectedIcon else item.unselectedIcon,
+                                    contentDescription = item.label
+                                )
+                            },
+                            label = { Text(item.label) }
+                        )
+                    }
+                }
+            }
             NavHost(
                 navController = navController,
                 startDestination = "search",
@@ -467,18 +513,13 @@ fun AniyaaApp(
                     SearchHistoryScreen(
                         onHistoryItemClick = { entry ->
                             searchViewModel.applyHistory(entry)
-                            navController.navigate("search") {
-                                popUpTo("search") { inclusive = true }
-                                launchSingleTop = true
-                            }
+                            goToSearch()
                         },
                         onSavedSearchClick = { saved ->
                             searchViewModel.applySavedSearch(saved)
-                            navController.navigate("search") {
-                                popUpTo("search") { inclusive = true }
-                                launchSingleTop = true
-                            }
+                            goToSearch()
                         },
+                        onTorrentClick = openTorrent,
                         searchHistoryViewModel = searchHistoryViewModel
                     )
                 }
@@ -515,7 +556,9 @@ fun AniyaaApp(
                         cached = cached,
                         onNavigateBack = { navController.navigateUp() },
                         onOpenUser = ::openUser,
-                        bookmarkViewModel = bookmarkViewModel
+                        onOpenCatalogLink = { applyCatalogLink(it) },
+                        bookmarkViewModel = bookmarkViewModel,
+                        searchHistoryViewModel = searchHistoryViewModel
                     )
                 }
             }
@@ -523,11 +566,15 @@ fun AniyaaApp(
                 Box(modifier = Modifier.weight(1.15f).fillMaxHeight()) {
                     val torrent = selectedTorrent
                     if (torrent != null) {
-                        TorrentDetailScreen(
-                            torrent = torrent,
+                        TorrentDetailGate(
+                            navId = torrent.navId(),
+                            site = torrent.site,
+                            cached = torrent,
                             onNavigateBack = { selectedTorrent = null },
                             onOpenUser = ::openUser,
-                            bookmarkViewModel = bookmarkViewModel
+                            onOpenCatalogLink = { applyCatalogLink(it) },
+                            bookmarkViewModel = bookmarkViewModel,
+                            searchHistoryViewModel = searchHistoryViewModel
                         )
                     } else {
                         EmptyDetailPane()
@@ -545,7 +592,9 @@ private fun TorrentDetailGate(
     cached: Torrent?,
     onNavigateBack: () -> Unit,
     onOpenUser: (String) -> Unit,
-    bookmarkViewModel: BookmarkViewModel
+    onOpenCatalogLink: (CatalogDeepLink) -> Unit,
+    bookmarkViewModel: BookmarkViewModel,
+    searchHistoryViewModel: SearchHistoryViewModel
 ) {
     var torrent by remember(navId, site) { mutableStateOf(cached) }
     var loading by remember(navId, site) { mutableStateOf(cached == null && navId.isNotBlank() && navId != "unknown") }
@@ -567,6 +616,7 @@ private fun TorrentDetailGate(
             .onSuccess {
                 torrent = it
                 loading = false
+                searchHistoryViewModel.recordViewed(it)
             }
             .onFailure {
                 failed = true
@@ -575,12 +625,18 @@ private fun TorrentDetailGate(
     }
 
     when {
-        torrent != null -> TorrentDetailScreen(
-            torrent = torrent!!,
-            onNavigateBack = onNavigateBack,
-            onOpenUser = onOpenUser,
-            bookmarkViewModel = bookmarkViewModel
-        )
+        torrent != null -> {
+            LaunchedEffect(torrent!!.bookmarkKey()) {
+                searchHistoryViewModel.recordViewed(torrent!!)
+            }
+            TorrentDetailScreen(
+                torrent = torrent!!,
+                onNavigateBack = onNavigateBack,
+                onOpenUser = onOpenUser,
+                onOpenCatalogLink = onOpenCatalogLink,
+                bookmarkViewModel = bookmarkViewModel
+            )
+        }
         loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }

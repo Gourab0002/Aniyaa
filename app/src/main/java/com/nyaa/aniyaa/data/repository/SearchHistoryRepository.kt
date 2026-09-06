@@ -51,6 +51,10 @@ class SearchHistoryRepository(private val database: AppDatabase) {
         }
     }
 
+    suspend fun merge(entries: List<SearchHistoryEntry>) {
+        entries.sortedBy { it.timestamp }.forEach { add(it) }
+    }
+
     companion object {
         const val MAX_HISTORY_SIZE = 50
     }

@@ -81,3 +81,30 @@ interface SavedSearchDao {
     @Query("DELETE FROM saved_searches")
     suspend fun deleteAll()
 }
+
+@Dao
+interface ViewedListingDao {
+    @Query("SELECT * FROM viewed_listings ORDER BY viewedAt DESC")
+    fun observe(): Flow<List<ViewedListingEntity>>
+
+    @Query("SELECT * FROM viewed_listings ORDER BY viewedAt DESC")
+    suspend fun getAll(): List<ViewedListingEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: ViewedListingEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<ViewedListingEntity>)
+
+    @Query("DELETE FROM viewed_listings WHERE identity = :identity")
+    suspend fun delete(identity: String)
+
+    @Query(
+        "DELETE FROM viewed_listings WHERE identity NOT IN " +
+            "(SELECT identity FROM viewed_listings ORDER BY viewedAt DESC LIMIT :keep)"
+    )
+    suspend fun trim(keep: Int)
+
+    @Query("DELETE FROM viewed_listings")
+    suspend fun deleteAll()
+}

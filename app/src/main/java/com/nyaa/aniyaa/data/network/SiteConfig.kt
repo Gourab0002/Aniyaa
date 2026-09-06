@@ -47,4 +47,25 @@ object SiteConfig {
             else -> "$base/$value"
         }
     }
+
+    fun isCatalogHost(host: String): Boolean {
+        val normalized = host.lowercase().removePrefix("www.")
+        if (normalized.isBlank()) return false
+        if (normalized.contains("nyaa")) return true
+        CatalogSite.entries.forEach { site ->
+            val configured = hostOf(baseUrl(site))
+            if (configured.isNotBlank() && configured == normalized) return true
+            if (site.defaultHost == normalized) return true
+        }
+        return false
+    }
+
+    private fun hostOf(url: String): String {
+        val withoutScheme = url
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("//")
+        return withoutScheme.substringBefore("/").substringBefore("?").substringBefore(":")
+            .lowercase().removePrefix("www.")
+    }
 }

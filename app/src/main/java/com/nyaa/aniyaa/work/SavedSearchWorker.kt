@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -16,6 +17,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.MainActivity
 import com.nyaa.aniyaa.R
 import com.nyaa.aniyaa.data.db.AppDatabase
@@ -36,40 +38,55 @@ class SavedSearchWorker(
         if (notifying.isEmpty()) return Result.success()
         ensureChannel(applicationContext)
 
+        var anyFailure = false
         notifying.forEach { saved ->
             val result = repository.search(saved.toSearchParams(), forceNetwork = true)
-            val torrents = result.getOrNull().orEmpty()
+            val torrents = result.getOrNull()
+            if (torrents == null) {
+                anyFailure = true
+                return@forEach
+            }
             if (torrents.isEmpty()) return@forEach
             val ids = torrents.map { it.id }.filter { it.isNotBlank() }
-            val previous = saved.lastSeenIds.split(',').filter { it.isNotBlank() }.toSet()
-            val newIds = if (previous.isEmpty()) emptyList() else ids.filterNot { it in previous }
+            val newIds = SavedSearchAlerts.newIds(ids, saved.lastSeenIds)
+            val newTitles = torrents.filter { it.id in newIds.toSet() }.map { it.title }
             savedRepo.update(
                 saved.copy(
-                    lastSeenIds = ids.take(40).joinToString(","),
+                    lastSeenIds = SavedSearchAlerts.storeIds(ids),
                     lastCheckedAt = System.currentTimeMillis()
                 )
             )
             if (newIds.isNotEmpty()) {
-                notifyNewResults(applicationContext, saved.id, saved.displayName(), newIds.size)
+                notifyNewResults(
+                    applicationContext,
+                    saved.id,
+                    saved.displayName(),
+                    newIds.size,
+                    newTitles
+                )
             }
         }
-        return Result.success()
+        return if (anyFailure) Result.retry() else Result.success()
     }
 
     companion object {
         private const val UNIQUE_NAME = "saved-search-alerts"
         private const val CHANNEL_ID = "saved_searches"
 
-        fun enqueue(context: Context) {
+        fun enqueue(context: Context, intervalHours: Int? = null, replace: Boolean = false) {
+            val hours = (intervalHours
+                ?: (context.applicationContext as? AniyaaApplication)?.prefs?.savedSearchIntervalHours
+                ?: 6).coerceIn(1, 24)
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
-            val request = PeriodicWorkRequestBuilder<SavedSearchWorker>(6, TimeUnit.HOURS)
+            val request = PeriodicWorkRequestBuilder<SavedSearchWorker>(hours.toLong(), TimeUnit.HOURS)
                 .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                if (replace) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
                 request
             )
         }
@@ -86,7 +103,13 @@ class SavedSearchWorker(
             }
         }
 
-        private fun notifyNewResults(context: Context, savedId: Long, name: String, count: Int) {
+        private fun notifyNewResults(
+            context: Context,
+            savedId: Long,
+            name: String,
+            count: Int,
+            titles: List<String>
+        ) {
             val intent = Intent(context, MainActivity::class.java).apply {
                 data = Uri.parse("aniyaa://saved/$savedId")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -97,10 +120,14 @@ class SavedSearchWorker(
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            val style = NotificationCompat.InboxStyle()
+                .setBigContentTitle("New results for $name")
+            SavedSearchAlerts.inboxLines(titles, count).forEach { style.addLine(it) }
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_notify)
                 .setContentTitle("New results for $name")
-                .setContentText("$count new listing${if (count == 1) "" else "s"}")
+                .setContentText(SavedSearchAlerts.contentText(count))
+                .setStyle(style)
                 .setContentIntent(pending)
                 .setAutoCancel(true)
                 .build()

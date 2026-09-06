@@ -1,7 +1,9 @@
 package com.nyaa.aniyaa.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.data.api.NyaaCommentParser
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Torrent
@@ -29,9 +31,8 @@ data class CommentsUiState(
     val hasFetched: Boolean = false
 )
 
-class CommentsViewModel(
-    private val repository: NyaaRepository = NyaaRepository()
-) : ViewModel() {
+class CommentsViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository: NyaaRepository = (application as AniyaaApplication).nyaaRepository
 
     private val _uiState = MutableStateFlow(CommentsUiState())
     val uiState: StateFlow<CommentsUiState> = _uiState.asStateFlow()

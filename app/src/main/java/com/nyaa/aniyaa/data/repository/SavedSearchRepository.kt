@@ -35,4 +35,20 @@ class SavedSearchRepository(private val database: AppDatabase) {
         dao.deleteAll()
         searches.forEach { dao.insert(it.copy(id = 0).toEntity()) }
     }
+
+    suspend fun merge(searches: List<SavedSearch>) {
+        if (searches.isEmpty()) return
+        val existing = getAll()
+        searches.forEach { incoming ->
+            val duplicate = existing.any {
+                it.site == incoming.site &&
+                    it.query == incoming.query &&
+                    it.name == incoming.name &&
+                    it.categoryValue == incoming.categoryValue
+            }
+            if (!duplicate) {
+                add(incoming)
+            }
+        }
+    }
 }

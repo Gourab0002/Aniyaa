@@ -139,6 +139,73 @@ data class SavedSearchEntity(
     )
 }
 
+@Entity(tableName = "viewed_listings")
+data class ViewedListingEntity(
+    @PrimaryKey val identity: String,
+    val site: String,
+    val torrentId: String,
+    val title: String,
+    val link: String,
+    val guid: String,
+    val pubDate: String,
+    val seeders: Int,
+    val leechers: Int,
+    val downloads: Int,
+    val infoHash: String,
+    val category: String,
+    val size: String,
+    val comments: Int,
+    val trusted: Boolean,
+    val remake: Boolean,
+    val magnetLink: String,
+    val submitter: String,
+    val viewedAt: Long
+) {
+    fun toTorrent(): Torrent = Torrent(
+        id = torrentId,
+        title = title,
+        link = link,
+        guid = guid,
+        pubDate = pubDate,
+        seeders = seeders,
+        leechers = leechers,
+        downloads = downloads,
+        infoHash = infoHash,
+        category = category,
+        size = size,
+        comments = comments,
+        trusted = trusted,
+        remake = remake,
+        magnetLink = magnetLink,
+        submitter = submitter,
+        addedAt = viewedAt,
+        site = CatalogSite.fromId(site)
+    )
+}
+
+fun Torrent.toViewedListingEntity(viewedAt: Long = System.currentTimeMillis()): ViewedListingEntity =
+    ViewedListingEntity(
+        identity = bookmarkKey(),
+        site = site.id,
+        torrentId = id,
+        title = title,
+        link = link,
+        guid = guid,
+        pubDate = pubDate,
+        seeders = seeders,
+        leechers = leechers,
+        downloads = downloads,
+        infoHash = infoHash,
+        category = category,
+        size = size,
+        comments = comments,
+        trusted = trusted,
+        remake = remake,
+        magnetLink = magnetLink,
+        submitter = submitter,
+        viewedAt = viewedAt
+    )
+
 fun SavedSearch.toEntity(): SavedSearchEntity = SavedSearchEntity(
     id = id,
     name = name,

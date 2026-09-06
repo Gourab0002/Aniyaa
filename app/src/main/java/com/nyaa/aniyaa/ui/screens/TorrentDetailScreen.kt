@@ -53,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -82,6 +83,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nyaa.aniyaa.data.api.resolvedMagnet
+import com.nyaa.aniyaa.data.model.CatalogDeepLink
+import com.nyaa.aniyaa.data.model.CatalogDeepLinks
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.data.model.TorrentFileEntry
@@ -99,12 +102,15 @@ import com.nyaa.aniyaa.util.PubDateFormatter
 import com.nyaa.aniyaa.util.buildFileTree
 import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.downloadTorrentFile
+import com.nyaa.aniyaa.util.filterFileEntries
 import com.nyaa.aniyaa.util.openHttpUrl
 import com.nyaa.aniyaa.util.openMagnet
 import com.nyaa.aniyaa.util.shareText as sharePlainText
 import com.nyaa.aniyaa.util.totalSizeLabel
 import com.nyaa.aniyaa.util.torrentShareText
+import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
+import io.noties.markwon.MarkwonConfiguration
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.image.ImagesPlugin
@@ -117,13 +123,15 @@ fun TorrentDetailScreen(
     torrent: Torrent,
     onNavigateBack: () -> Unit,
     onOpenUser: (String) -> Unit = {},
+    onOpenCatalogLink: (CatalogDeepLink) -> Unit = {},
     bookmarkViewModel: BookmarkViewModel = viewModel(),
     commentsViewModel: CommentsViewModel = viewModel(
         key = torrent.id.ifEmpty { torrent.infoHash }.ifEmpty { torrent.guid }
     )
 ) {
     val context = LocalContext.current
-    val prefs = remember { AppPreferences(context) }
+    val prefs = com.nyaa.aniyaa.AniyaaApplication.instance.prefs
+    var fileQuery by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val bookmarks by bookmarkViewModel.allBookmarks.collectAsStateWithLifecycle()
@@ -275,6 +283,87 @@ fun TorrentDetailScreen(
                 }
             }
 
+            item(key = "actions") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Actions",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 2
+                    ) {
+                        if (magnetLink.isNotEmpty()) {
+                            FilledTonalButton(
+                                onClick = { openMagnet(context, magnetLink, prefs.preferredTorrentPackage)?.let(::showMessage) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Magnet", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    copyText(context, "Magnet Link", magnetLink)
+                                    showMessage("Copied to clipboard")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Copy Magnet", maxLines = 1)
+                            }
+                        }
+                        if (displayTorrent.link.isNotEmpty()) {
+                            FilledTonalButton(
+                                onClick = { showMessage(downloadTorrentFile(context, displayTorrent)) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Download", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { sharePlainText(context, torrentShareText(displayTorrent))?.let(::showMessage) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Share", maxLines = 1)
+                        }
+                        if (displayTorrent.guid.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = { openUrl(displayTorrent.guid) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(displayTorrent.site.viewOnLabel, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+            }
+
             item(key = "stats") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -400,103 +489,46 @@ fun TorrentDetailScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(12.dp))
-                        MarkdownContent(markdown = commentsState.description)
+                        MarkdownContent(
+                            markdown = commentsState.description,
+                            onCatalogLink = { url ->
+                                val parsed = CatalogDeepLinks.parse(url, displayTorrent.site)
+                                if (parsed != null && (parsed.viewId != null || parsed.searchParams != null)) {
+                                    onOpenCatalogLink(parsed)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        )
                     }
                 }
                 }
-            }
-
-            item(key = "actions") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                ),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(
-                        text = "Actions",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        maxItemsInEachRow = 2
-                    ) {
-                        if (magnetLink.isNotEmpty()) {
-                            FilledTonalButton(
-                                onClick = { openMagnet(context, magnetLink, prefs.preferredTorrentPackage)?.let(::showMessage) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Magnet", maxLines = 1, fontWeight = FontWeight.SemiBold)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    copyText(context, "Magnet Link", magnetLink)
-                                    showMessage("Copied to clipboard")
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Copy Magnet", maxLines = 1)
-                            }
-                        }
-                        if (displayTorrent.link.isNotEmpty()) {
-                            FilledTonalButton(
-                                onClick = { showMessage(downloadTorrentFile(context, displayTorrent)) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Download", maxLines = 1, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = { sharePlainText(context, torrentShareText(displayTorrent))?.let(::showMessage) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Share", maxLines = 1)
-                        }
-                        if (displayTorrent.guid.isNotEmpty()) {
-                            OutlinedButton(
-                                onClick = { openUrl(displayTorrent.guid) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(displayTorrent.site.viewOnLabel, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            }
             }
 
             if (commentsState.fileList.isNotEmpty()) {
+                val visibleFiles = filterFileEntries(commentsState.fileList, fileQuery)
                 item(key = "files-header") {
-                    FileListHeader(
-                        count = commentsState.fileList.size,
-                        totalSize = totalSizeLabel(commentsState.fileList)
-                    )
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        FileListHeader(
+                            count = visibleFiles.size,
+                            totalSize = totalSizeLabel(visibleFiles)
+                        )
+                        if (commentsState.fileList.size > 8) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = fileQuery,
+                                onValueChange = { fileQuery = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                placeholder = { Text("Filter files") }
+                            )
+                        }
+                    }
                 }
                 item(key = "files-tree") {
                     FileTree(
-                        nodes = buildFileTree(commentsState.fileList),
+                        nodes = buildFileTree(visibleFiles),
                         onCopyPath = { path ->
                             copyText(context, "File path", path)
                             showMessage("Copied path")
@@ -525,6 +557,15 @@ fun TorrentDetailScreen(
                         onOpenPermalink = {
                             val base = displayTorrent.guid.ifBlank { "${SiteConfig.baseUrl(displayTorrent.site)}/view/${displayTorrent.id}" }
                             if (comment.id.isNotBlank()) openUrl("$base#com-${comment.id}")
+                        },
+                        onCatalogLink = { url ->
+                            val parsed = CatalogDeepLinks.parse(url, displayTorrent.site)
+                            if (parsed != null && (parsed.viewId != null || parsed.searchParams != null)) {
+                                onOpenCatalogLink(parsed)
+                                true
+                            } else {
+                                false
+                            }
                         }
                     )
                 }
@@ -541,7 +582,8 @@ fun TorrentDetailScreen(
 private fun CommentItem(
     comment: TorrentComment,
     onOpenUser: () -> Unit = {},
-    onOpenPermalink: () -> Unit = {}
+    onOpenPermalink: () -> Unit = {},
+    onCatalogLink: (String) -> Boolean = { false }
 ) {
     val avatarSize = 36.dp
     val avatarSpacing = 10.dp
@@ -600,17 +642,22 @@ private fun CommentItem(
         Spacer(Modifier.height(8.dp))
         MarkdownContent(
             markdown = comment.content,
-            modifier = Modifier.padding(start = avatarSize + avatarSpacing)
+            modifier = Modifier.padding(start = avatarSize + avatarSpacing),
+            onCatalogLink = onCatalogLink
         )
     }
 }
 
 @Composable
-private fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
+private fun MarkdownContent(
+    markdown: String,
+    modifier: Modifier = Modifier,
+    onCatalogLink: (String) -> Boolean = { false }
+) {
     val context = LocalContext.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
-    val markwon = remember(context) {
+    val markwon = remember(context, onCatalogLink) {
         Markwon.builder(context)
             .usePlugin(ImagesPlugin.create { plugin ->
                 plugin.errorHandler { _, _ -> null }
@@ -618,6 +665,19 @@ private fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
             .usePlugin(TablePlugin.create(context))
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(LinkifyPlugin.create(true))
+            .usePlugin(object : AbstractMarkwonPlugin() {
+                override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
+                    builder.linkResolver { view, link ->
+                        if (onCatalogLink(link)) return@linkResolver
+                        try {
+                            view.context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            })
             .build()
     }
     AndroidView(

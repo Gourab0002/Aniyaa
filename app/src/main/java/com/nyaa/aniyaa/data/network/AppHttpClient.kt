@@ -69,6 +69,9 @@ object AppHttpClient {
         if (request.method != "GET" || !response.isSuccessful) {
             return@Interceptor response
         }
+        if (!SiteConfig.isCatalogHost(request.url.host)) {
+            return@Interceptor response
+        }
         response.newBuilder()
             .removeHeader("Pragma")
             .header("Cache-Control", "public, max-age=$DEFAULT_MAX_AGE_SECONDS")
