@@ -18,9 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,11 +45,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.nyaa.aniyaa.data.repository.SearchHistoryEntry
+import com.nyaa.aniyaa.data.model.SavedSearch
+import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,22 +60,20 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchHistoryScreen(
-    onHistoryItemClick: (String) -> Unit,
+    onHistoryItemClick: (SearchHistoryEntry) -> Unit,
+    onSavedSearchClick: (SavedSearch) -> Unit,
     searchHistoryViewModel: SearchHistoryViewModel = viewModel(),
     bottomPadding: Dp = 0.dp
 ) {
     val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
+    val saved by searchHistoryViewModel.savedSearches.collectAsStateWithLifecycle()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "Search History",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Search History", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 },
                 actions = {
                     if (history.isNotEmpty()) {
@@ -83,9 +86,7 @@ fun SearchHistoryScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -95,9 +96,12 @@ fun SearchHistoryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (history.isEmpty()) {
+            if (history.isEmpty() && saved.isEmpty()) {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Surface(
@@ -119,13 +123,17 @@ fun SearchHistoryScreen(
                         text = "No search history",
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "Your recent searches will appear here",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             } else {
@@ -139,11 +147,41 @@ fun SearchHistoryScreen(
                         bottom = 8.dp + bottomPadding
                     )
                 ) {
-                    items(history, key = { "${it.query}|${it.timestamp}" }) { entry ->
+                    if (saved.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Saved searches",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                        items(saved, key = { "saved-${it.id}" }) { search ->
+                            SavedSearchCard(
+                                search = search,
+                                onClick = { onSavedSearchClick(search) },
+                                onToggleNotify = { searchHistoryViewModel.toggleNotify(search) },
+                                onDelete = { searchHistoryViewModel.deleteSavedSearch(search.id) }
+                            )
+                        }
+                    }
+                    if (history.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Recent",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    }
+                    items(history, key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
-                                    searchHistoryViewModel.removeEntry(entry.query)
+                                    searchHistoryViewModel.removeEntry(entry)
                                     true
                                 } else {
                                     false
@@ -153,16 +191,13 @@ fun SearchHistoryScreen(
                         SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.CenterEnd
-                                ) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
                                     Surface(
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.errorContainer,
                                         modifier = Modifier.padding(end = 16.dp)
                                     ) {
-                                        IconButton(onClick = { searchHistoryViewModel.removeEntry(entry.query) }) {
+                                        IconButton(onClick = { searchHistoryViewModel.removeEntry(entry) }) {
                                             Icon(
                                                 Icons.Default.Delete,
                                                 contentDescription = "Remove from history",
@@ -175,11 +210,71 @@ fun SearchHistoryScreen(
                         ) {
                             SearchHistoryCard(
                                 entry = entry,
-                                onClick = { onHistoryItemClick(entry.query) }
+                                onClick = { onHistoryItemClick(entry) }
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedSearchCard(
+    search: SavedSearch,
+    onClick: () -> Unit,
+    onToggleNotify: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = search.displayName(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val summary = search.toSearchParams().let {
+                    buildList {
+                        add(search.site.displayName)
+                        if (it.query.isNotBlank()) add(it.query)
+                        if (it.category.value != "0_0") add(it.category.displayName)
+                        if (it.filter.displayName != "No Filter") add(it.filter.displayName)
+                    }.joinToString(" · ")
+                }
+                if (summary.isNotBlank()) {
+                    Text(text = summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            IconButton(onClick = onToggleNotify) {
+                Icon(
+                    if (search.notify) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                    contentDescription = if (search.notify) "Disable alerts" else "Enable alerts",
+                    tint = if (search.notify) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete saved search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -195,9 +290,7 @@ private fun SearchHistoryCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Row(
             modifier = Modifier
@@ -206,18 +299,9 @@ private fun SearchHistoryCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(40.dp)
-            ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.History,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -229,18 +313,11 @@ private fun SearchHistoryCard(
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Text(
-                    text = formatTimestamp(entry.timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                val extra = listOfNotNull(formatTimestamp(entry.timestamp), entry.filterSummary().ifBlank { null })
+                    .joinToString(" · ")
+                Text(text = extra, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Search again",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Icon(Icons.Default.Search, contentDescription = "Search again", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -252,7 +329,6 @@ private val historyDateFormatter: SimpleDateFormat by lazy {
 private fun formatTimestamp(timestamp: Long): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
-
     return when {
         diff < 0 -> historyDateFormatter.format(Date(timestamp))
         diff < 60_000 -> "Just now"

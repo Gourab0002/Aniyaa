@@ -1,6 +1,9 @@
 package com.nyaa.aniyaa.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +18,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,11 +35,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,8 +68,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -76,21 +89,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.nyaa.aniyaa.data.model.CATEGORIES
+import com.nyaa.aniyaa.data.api.resolvedMagnet
+import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Category
 import com.nyaa.aniyaa.data.model.FilterOption
+import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
+import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchUiState
 import com.nyaa.aniyaa.ui.viewmodel.SearchViewModel
 import com.nyaa.aniyaa.util.PubDateFormatter
+import com.nyaa.aniyaa.util.copyText
+import com.nyaa.aniyaa.util.openMagnet
 import kotlinx.coroutines.launch
 
 private const val LOAD_MORE_BUFFER = 3
@@ -101,17 +120,27 @@ fun SearchScreen(
     onTorrentClick: (Torrent) -> Unit,
     searchViewModel: SearchViewModel = viewModel(),
     searchHistoryViewModel: SearchHistoryViewModel = viewModel(),
+    bookmarkViewModel: BookmarkViewModel = viewModel(),
     bottomPadding: Dp = 0.dp
 ) {
     val viewModel = searchViewModel
     val query by viewModel.query.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
+    val bookmarks by bookmarkViewModel.allBookmarks.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+    val prefs = remember { AppPreferences(context) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
+    val interactionSource = remember { MutableInteractionSource() }
+    val searchFocused by interactionSource.collectIsFocusedAsState()
+    val bookmarkedIds = remember(bookmarks) { bookmarks.map { it.bookmarkKey() }.toSet() }
+    var showSukebeiWarning by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.error, uiState.torrents.isNotEmpty()) {
         val error = uiState.error
@@ -127,96 +156,185 @@ fun SearchScreen(
         }
     }
 
+    val suggestions = remember(query, history, searchFocused) {
+        if (!searchFocused) emptyList()
+        else history.filter {
+            it.site == uiState.searchParams.site && it.query.contains(query.trim(), ignoreCase = true)
+        }.take(6)
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = viewModel::updateQuery,
-                            placeholder = {
-                                Text(
-                                    "Search nyaa.si...",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = {
-                                keyboardController?.hide()
-                                if (query.isNotBlank()) {
-                                    searchHistoryViewModel.addEntry(query)
-                                }
-                                viewModel.search()
-                            }),
-                            trailingIcon = {
-                                if (query.isNotEmpty()) {
-                                    IconButton(onClick = { viewModel.updateQuery("") }) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "Clear",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                cursorColor = MaterialTheme.colorScheme.primary
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = viewModel::updateQuery,
+                        placeholder = {
+                            Text(
+                                "Search…",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
-                        )
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            IconButton(onClick = { showFilterSheet = true }) {
-                                Icon(
-                                    Icons.Default.FilterList,
-                                    contentDescription = "Filter",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        interactionSource = interactionSource,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            keyboardController?.hide()
+                            viewModel.search()
+                        }),
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.updateQuery("") }) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Clear",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        shape = RoundedCornerShape(28.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    IconButton(onClick = { showSaveDialog = true }) {
+                        Icon(
+                            Icons.Default.Save,
+                            contentDescription = "Save search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        IconButton(onClick = { showFilterSheet = true }) {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = "Filter",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                )
-            )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CatalogSite.entries.forEach { site ->
+                        FilterChip(
+                            selected = uiState.searchParams.site == site,
+                            onClick = {
+                                if (site.nsfw && !prefs.sukebeiAcknowledged) {
+                                    showSukebeiWarning = true
+                                } else {
+                                    viewModel.switchSite(site)
+                                }
+                            },
+                            label = { Text(if (site.nsfw) "${site.displayName} 18+" else site.displayName) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        SearchResultsBody(
-            uiState = uiState,
-            listState = listState,
-            bottomPadding = bottomPadding,
-            onTorrentClick = onTorrentClick,
-            onRetry = viewModel::search,
-            onLoadMore = viewModel::loadNextPage,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-        )
+        ) {
+            if (suggestions.isNotEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    suggestions.forEach { entry ->
+                        Text(
+                            text = entry.query,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    keyboardController?.hide()
+                                    viewModel.applyHistory(entry)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+            val siteHistory = history.filter { it.site == uiState.searchParams.site }
+            if (siteHistory.isNotEmpty()) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(siteHistory.take(12), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { viewModel.applyHistory(entry) },
+                            label = {
+                                Text(
+                                    entry.query,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 180.dp)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+            SearchResultsBody(
+                uiState = uiState,
+                listState = listState,
+                bottomPadding = bottomPadding,
+                bookmarkedIds = bookmarkedIds,
+                onTorrentClick = onTorrentClick,
+                onRetry = { viewModel.search(forceNetwork = true) },
+                onRefresh = viewModel::refresh,
+                onLoadMore = viewModel::loadNextPage,
+                onMagnet = { torrent ->
+                    val error = openMagnet(context, torrent.resolvedMagnet(), prefs.preferredTorrentPackage)
+                    if (error != null) scope.launch { snackbarHostState.showSnackbar(error) }
+                },
+                onCopyMagnet = { torrent ->
+                    val magnet = torrent.resolvedMagnet()
+                    if (magnet.isNotEmpty()) {
+                        copyText(context, "Magnet Link", magnet)
+                        scope.launch { snackbarHostState.showSnackbar("Copied magnet") }
+                    }
+                },
+                onToggleBookmark = { torrent -> bookmarkViewModel.toggleBookmark(torrent) },
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 
     if (showFilterSheet) {
@@ -229,6 +347,10 @@ fun SearchScreen(
         ) {
             FilterBottomSheetContent(
                 searchParams = uiState.searchParams,
+                categories = uiState.searchParams.site.categories,
+                defaultCategory = prefs.defaultCategory(uiState.searchParams.site),
+                defaultSortField = com.nyaa.aniyaa.data.model.sortFieldByValue(prefs.defaultSortFieldValue(uiState.searchParams.site)),
+                defaultSortOrder = com.nyaa.aniyaa.data.model.sortOrderByValue(prefs.defaultSortOrderValue(uiState.searchParams.site)),
                 onCategoryChange = viewModel::updateCategory,
                 onFilterChange = viewModel::updateFilter,
                 onSortFieldChange = viewModel::updateSortField,
@@ -237,27 +359,110 @@ fun SearchScreen(
                 onApply = {
                     scope.launch { sheetState.hide() }
                         .invokeOnCompletion { showFilterSheet = false }
-                    if (query.isNotBlank()) {
-                        searchHistoryViewModel.addEntry(query)
-                    }
                     viewModel.search()
                 }
             )
         }
     }
+
+    if (showSukebeiWarning) {
+        AlertDialog(
+            onDismissRequest = { showSukebeiWarning = false },
+            title = { Text("Sukebei is 18+") },
+            text = {
+                Text(
+                    "Sukebei lists adult content. You must be 18 or older to continue. " +
+                        "You can switch back to Nyaa at any time."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        prefs.sukebeiAcknowledged = true
+                        showSukebeiWarning = false
+                        viewModel.switchSite(CatalogSite.SUKEBEI)
+                    }
+                ) { Text("I am 18+") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSukebeiWarning = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showSaveDialog) {
+        SaveSearchDialog(
+            defaultName = query.ifBlank { "Latest listings" },
+            onDismiss = { showSaveDialog = false },
+            onSave = { name, notify ->
+                showSaveDialog = false
+                scope.launch {
+                    viewModel.saveCurrentSearch(name, notify)
+                    snackbarHostState.showSnackbar("Search saved")
+                }
+            }
+        )
+    }
 }
 
+@Composable
+private fun SaveSearchDialog(
+    defaultName: String,
+    onDismiss: () -> Unit,
+    onSave: (String, Boolean) -> Unit
+) {
+    var name by remember { mutableStateOf(defaultName) }
+    var notify by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Save this search") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                FilterChip(
+                    selected = notify,
+                    onClick = { notify = !notify },
+                    label = { Text("Notify me of new results") }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name, notify) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchResultsBody(
     uiState: SearchUiState,
     listState: LazyListState,
     bottomPadding: Dp,
+    bookmarkedIds: Set<String>,
     onTorrentClick: (Torrent) -> Unit,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onMagnet: (Torrent) -> Unit,
+    onCopyMagnet: (Torrent) -> Unit,
+    onToggleBookmark: (Torrent) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier
+    ) {
         when {
             uiState.isLoading && uiState.torrents.isEmpty() -> {
                 Column(
@@ -271,7 +476,7 @@ private fun SearchResultsBody(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        text = "Searching...",
+                        text = "Loading listings...",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -281,6 +486,7 @@ private fun SearchResultsBody(
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
+                        .fillMaxWidth()
                         .padding(horizontal = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -297,14 +503,15 @@ private fun SearchResultsBody(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = onRetry) {
-                        Text("Retry")
-                    }
+                    Button(onClick = onRetry) { Text("Retry") }
                 }
             }
             uiState.torrents.isEmpty() && uiState.hasSearched -> {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
@@ -328,40 +535,6 @@ private fun SearchResultsBody(
                     )
                 }
             }
-            !uiState.hasSearched -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(96.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.TravelExplore,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(24.dp))
-                    Text(
-                        text = "Search nyaa.si",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Find anime, manga, music and more",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
             else -> {
                 val shouldLoadMore by remember {
                     derivedStateOf {
@@ -370,13 +543,11 @@ private fun SearchResultsBody(
                         totalItems > 0 && lastVisibleItem >= totalItems - LOAD_MORE_BUFFER
                     }
                 }
-
                 LaunchedEffect(shouldLoadMore, uiState.isLoadingMore, uiState.canLoadMore, uiState.isLoading) {
                     if (shouldLoadMore && !uiState.isLoading && !uiState.isLoadingMore && uiState.canLoadMore) {
                         onLoadMore()
                     }
                 }
-
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -393,7 +564,14 @@ private fun SearchResultsBody(
                         key = { index, torrent -> torrent.listKey(index) },
                         contentType = { _, _ -> "torrent" }
                     ) { _, torrent ->
-                        TorrentCard(torrent = torrent, onClick = onTorrentClick)
+                        TorrentCard(
+                            torrent = torrent,
+                            onClick = onTorrentClick,
+                            isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
+                            onMagnet = { onMagnet(torrent) },
+                            onCopyMagnet = { onCopyMagnet(torrent) },
+                            onToggleBookmark = { onToggleBookmark(torrent) }
+                        )
                     }
                     if (uiState.isLoadingMore) {
                         item(key = "loading-more", contentType = "loading") {
@@ -403,25 +581,9 @@ private fun SearchResultsBody(
                                     .padding(24.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(28.dp),
-                                    strokeWidth = 2.5.dp
-                                )
+                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
                             }
                         }
-                    }
-                }
-
-                if (uiState.isLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(40.dp),
-                            strokeWidth = 3.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
                     }
                 }
             }
@@ -433,6 +595,10 @@ private fun SearchResultsBody(
 @Composable
 fun FilterBottomSheetContent(
     searchParams: SearchParams,
+    categories: List<Category> = searchParams.site.categories,
+    defaultCategory: Category = categories.first(),
+    defaultSortField: SortField = SortField.DATE,
+    defaultSortOrder: SortOrder = SortOrder.DESC,
     onCategoryChange: (Category) -> Unit,
     onFilterChange: (FilterOption) -> Unit,
     onSortFieldChange: (SortField) -> Unit,
@@ -458,7 +624,6 @@ fun FilterBottomSheetContent(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-
         Text(
             text = "CATEGORY",
             style = MaterialTheme.typography.labelMedium,
@@ -471,9 +636,7 @@ fun FilterBottomSheetContent(
                 value = tempCategory.displayName,
                 onValueChange = {},
                 readOnly = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { categoryExpanded = true },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = false,
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -483,17 +646,13 @@ fun FilterBottomSheetContent(
                     disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { categoryExpanded = true }
-            )
+            Box(modifier = Modifier.matchParentSize().clickable { categoryExpanded = true })
             DropdownMenu(
                 expanded = categoryExpanded,
                 onDismissRequest = { categoryExpanded = false },
                 modifier = Modifier.fillMaxWidth(0.9f)
             ) {
-                CATEGORIES.forEach { category ->
+                categories.forEach { category ->
                     DropdownMenuItem(
                         text = { Text(category.displayName) },
                         onClick = {
@@ -504,9 +663,7 @@ fun FilterBottomSheetContent(
                 }
             }
         }
-
         Spacer(Modifier.height(20.dp))
-
         Text(
             text = "FILTER",
             style = MaterialTheme.typography.labelMedium,
@@ -528,9 +685,7 @@ fun FilterBottomSheetContent(
                 )
             }
         }
-
         Spacer(Modifier.height(20.dp))
-
         Text(
             text = "SORT BY",
             style = MaterialTheme.typography.labelMedium,
@@ -538,10 +693,7 @@ fun FilterBottomSheetContent(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SortField.entries.forEach { field ->
                 FilterChip(
                     selected = tempSortField == field,
@@ -555,9 +707,7 @@ fun FilterBottomSheetContent(
                 )
             }
         }
-
         Spacer(Modifier.height(20.dp))
-
         Text(
             text = "ORDER",
             style = MaterialTheme.typography.labelMedium,
@@ -589,25 +739,18 @@ fun FilterBottomSheetContent(
                 )
             }
         }
-
         Spacer(Modifier.height(32.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(
                 onClick = {
-                    tempCategory = CATEGORIES[0]
+                    tempCategory = defaultCategory
                     tempFilter = FilterOption.ALL
-                    tempSortField = SortField.DATE
-                    tempSortOrder = SortOrder.DESC
+                    tempSortField = defaultSortField
+                    tempSortOrder = defaultSortOrder
                     onReset()
                 },
                 modifier = Modifier.weight(1f)
-            ) {
-                Text("Reset", fontWeight = FontWeight.SemiBold)
-            }
+            ) { Text("Reset", fontWeight = FontWeight.SemiBold) }
             Button(
                 onClick = {
                     onCategoryChange(tempCategory)
@@ -618,33 +761,30 @@ fun FilterBottomSheetContent(
                 },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text("Apply & Search", fontWeight = FontWeight.SemiBold)
-            }
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) { Text("Apply & Search", fontWeight = FontWeight.SemiBold) }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TorrentCard(torrent: Torrent, onClick: (Torrent) -> Unit) {
+fun TorrentCard(
+    torrent: Torrent,
+    onClick: (Torrent) -> Unit,
+    isBookmarked: Boolean = false,
+    onMagnet: (() -> Unit)? = null,
+    onCopyMagnet: (() -> Unit)? = null,
+    onToggleBookmark: (() -> Unit)? = null
+) {
     Card(
         onClick = { onClick(torrent) },
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = torrent.title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -654,31 +794,30 @@ fun TorrentCard(torrent: Torrent, onClick: (Torrent) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurface
             )
-
             Spacer(Modifier.height(10.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer
-                ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
                     Text(
-                        text = torrent.category,
+                        text = torrent.site.displayName,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
                         fontWeight = FontWeight.Medium
                     )
                 }
-
+                if (torrent.category.isNotEmpty()) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Text(
+                            text = torrent.category,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 if (torrent.trusted) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = NyaaTrusted.copy(alpha = 0.12f)
-                    ) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = NyaaTrusted.copy(alpha = 0.12f)) {
                         Text(
                             text = "✓ Trusted",
                             style = MaterialTheme.typography.labelSmall,
@@ -688,12 +827,8 @@ fun TorrentCard(torrent: Torrent, onClick: (Torrent) -> Unit) {
                         )
                     }
                 }
-
                 if (torrent.remake) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = NyaaRemake.copy(alpha = 0.12f)
-                    ) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = NyaaRemake.copy(alpha = 0.12f)) {
                         Text(
                             text = "⚠ Remake",
                             style = MaterialTheme.typography.labelSmall,
@@ -704,18 +839,13 @@ fun TorrentCard(torrent: Torrent, onClick: (Torrent) -> Unit) {
                     }
                 }
             }
-
             Spacer(Modifier.height(12.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest
-                ) {
+                Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Text(
                         text = torrent.size,
                         style = MaterialTheme.typography.labelSmall,
@@ -724,65 +854,61 @@ fun TorrentCard(torrent: Torrent, onClick: (Torrent) -> Unit) {
                         fontWeight = FontWeight.Medium
                     )
                 }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Icon(
-                        Icons.Default.ArrowUpward,
-                        contentDescription = "Seeders",
-                        modifier = Modifier.size(13.dp),
-                        tint = NyaaSeeder
-                    )
-                    Text(
-                        text = torrent.seeders.toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NyaaSeeder,
-                        fontWeight = FontWeight.Bold
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = "Seeders", modifier = Modifier.size(13.dp), tint = NyaaSeeder)
+                    Text(text = torrent.seeders.toString(), style = MaterialTheme.typography.labelMedium, color = NyaaSeeder, fontWeight = FontWeight.Bold)
                 }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Icon(
-                        Icons.Default.ArrowDownward,
-                        contentDescription = "Leechers",
-                        modifier = Modifier.size(13.dp),
-                        tint = NyaaLeecher
-                    )
-                    Text(
-                        text = torrent.leechers.toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NyaaLeecher,
-                        fontWeight = FontWeight.Bold
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Icon(Icons.Default.ArrowDownward, contentDescription = "Leechers", modifier = Modifier.size(13.dp), tint = NyaaLeecher)
+                    Text(text = torrent.leechers.toString(), style = MaterialTheme.typography.labelMedium, color = NyaaLeecher, fontWeight = FontWeight.Bold)
                 }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Download,
-                        contentDescription = "Downloads",
-                        modifier = Modifier.size(13.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = torrent.downloads.toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Icon(Icons.Default.Download, contentDescription = "Downloads", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = torrent.downloads.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-
                 Text(
                     text = remember(torrent.pubDate) { PubDateFormatter.format(torrent.pubDate) },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
+            }
+            if (onMagnet != null || onCopyMagnet != null || onToggleBookmark != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onMagnet != null) {
+                        IconButton(onClick = onMagnet, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                Icons.Default.Link,
+                                contentDescription = "Open magnet",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    if (onCopyMagnet != null) {
+                        IconButton(onClick = onCopyMagnet, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy magnet",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (onToggleBookmark != null) {
+                        IconButton(onClick = onToggleBookmark, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (isBookmarked) "Remove bookmark" else "Bookmark",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,6 +1,9 @@
 -keepattributes *Annotation*, InnerClasses, Signature, Exception, SourceFile, LineNumberTable
 
 -keep class com.nyaa.aniyaa.data.model.** { *; }
+-keep class com.nyaa.aniyaa.data.db.** { *; }
+-keep class androidx.room.** { *; }
+-dontwarn androidx.room.paging.**
 
 -keep class okhttp3.** { *; }
 -dontwarn okhttp3.**

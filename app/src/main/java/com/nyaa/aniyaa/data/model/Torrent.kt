@@ -21,7 +21,10 @@ data class Torrent(
     val comments: Int,
     val trusted: Boolean,
     val remake: Boolean,
-    val magnetLink: String
+    val magnetLink: String,
+    val submitter: String = "",
+    val addedAt: Long = 0L,
+    val site: CatalogSite = CatalogSite.NYAA
 ) : Parcelable {
     fun identity(): String = when {
         id.isNotEmpty() -> id
@@ -30,16 +33,21 @@ data class Torrent(
         else -> "$title|$pubDate|$link"
     }
 
+    fun bookmarkKey(): String = "${site.id}:${identity()}"
+
     fun matchesNavId(navId: String): Boolean =
         navId.isNotEmpty() && (id == navId || infoHash == navId || navId() == navId)
 
     fun navId(): String = id.ifBlank { infoHash }.ifBlank { "unknown" }
 
-    fun listKey(index: Int): String = when {
-        id.isNotEmpty() -> "id:$id"
-        infoHash.isNotEmpty() -> "ih:$infoHash"
-        guid.isNotEmpty() -> "g:$guid"
-        else -> "i:$index:${title.hashCode()}:$pubDate"
+    fun listKey(index: Int): String {
+        val local = when {
+            id.isNotEmpty() -> "id:$id"
+            infoHash.isNotEmpty() -> "ih:$infoHash"
+            guid.isNotEmpty() -> "g:$guid"
+            else -> "i:$index:${title.hashCode()}:$pubDate"
+        }
+        return "${site.id}:$local"
     }
 }
 
@@ -63,32 +71,50 @@ enum class FilterOption(val value: Int, val displayName: String) {
     TRUSTED(2, "Trusted Only")
 }
 
+enum class DarkMode(val value: String, val displayName: String) {
+    SYSTEM("system", "System"),
+    LIGHT("light", "Light"),
+    DARK("dark", "Dark")
+}
+
+enum class BookmarkSort(val displayName: String) {
+    DATE_ADDED("Date added"),
+    TITLE("Title"),
+    SIZE("Size"),
+    SEEDERS("Seeders")
+}
+
 data class Category(val value: String, val displayName: String)
 
-val CATEGORIES = listOf(
-    Category("0_0", "All Categories"),
-    Category("1_0", "Anime"),
-    Category("1_1", "Anime - AMV"),
-    Category("1_2", "Anime - English"),
-    Category("1_3", "Anime - Non-English"),
-    Category("1_4", "Anime - Raw"),
-    Category("2_0", "Audio"),
-    Category("3_0", "Literature"),
-    Category("4_0", "Live Action"),
-    Category("4_1", "Live Action - English"),
-    Category("4_4", "Live Action - Raw"),
-    Category("5_0", "Pictures"),
-    Category("6_0", "Software")
-)
+fun categoryByValue(value: String, site: CatalogSite = CatalogSite.NYAA): Category =
+    site.categories.find { it.value == value } ?: site.categories.first()
+
+fun sortFieldByValue(value: String): SortField =
+    SortField.entries.find { it.value == value } ?: SortField.DATE
+
+fun sortOrderByValue(value: String): SortOrder =
+    SortOrder.entries.find { it.value == value } ?: SortOrder.DESC
+
+fun filterByValue(value: Int): FilterOption =
+    FilterOption.entries.find { it.value == value } ?: FilterOption.ALL
+
+fun darkModeByValue(value: String): DarkMode =
+    DarkMode.entries.find { it.value == value } ?: DarkMode.SYSTEM
 
 data class SearchParams(
     val query: String = "",
-    val category: Category = CATEGORIES[0],
+    val site: CatalogSite = CatalogSite.NYAA,
+    val category: Category = NYAA_CATEGORIES[0],
     val filter: FilterOption = FilterOption.ALL,
     val sortField: SortField = SortField.DATE,
     val sortOrder: SortOrder = SortOrder.DESC,
     val page: Int = 1
-)
+) {
+    fun withValidCategory(): SearchParams {
+        val valid = categoryByValue(category.value, site)
+        return if (valid == category) this else copy(category = valid)
+    }
+}
 
 @Immutable
 data class TorrentComment(
@@ -108,5 +134,101 @@ data class TorrentFileEntry(
 data class TorrentPageData(
     val description: String,
     val fileList: List<TorrentFileEntry>,
-    val comments: List<TorrentComment>
+    val comments: List<TorrentComment>,
+    val submitter: String = "",
+    val title: String = "",
+    val category: String = "",
+    val size: String = "",
+    val infoHash: String = "",
+    val seeders: Int = 0,
+    val leechers: Int = 0,
+    val downloads: Int = 0,
+    val commentsCount: Int = 0,
+    val trusted: Boolean = false,
+    val remake: Boolean = false,
+    val magnetLink: String = "",
+    val downloadUrl: String = "",
+    val pubDate: String = ""
 )
+
+data class SearchHistoryEntry(
+    val query: String,
+    val timestamp: Long,
+    val site: CatalogSite = CatalogSite.NYAA,
+    val categoryValue: String = NYAA_CATEGORIES.first().value,
+    val filterValue: Int = FilterOption.ALL.value,
+    val sortFieldValue: String = SortField.DATE.value,
+    val sortOrderValue: String = SortOrder.DESC.value
+) {
+    fun toSearchParams(): SearchParams = SearchParams(
+        query = query,
+        site = site,
+        category = categoryByValue(categoryValue, site),
+        filter = filterByValue(filterValue),
+        sortField = sortFieldByValue(sortFieldValue),
+        sortOrder = sortOrderByValue(sortOrderValue),
+        page = 1
+    )
+
+    fun filterSummary(): String {
+        val parts = buildList {
+            add(site.displayName)
+            val category = categoryByValue(categoryValue, site)
+            if (category.value != site.categories.first().value) add(category.displayName)
+            val filter = filterByValue(filterValue)
+            if (filter != FilterOption.ALL) add(filter.displayName)
+            val sort = sortFieldByValue(sortFieldValue)
+            if (sort != SortField.DATE) add(sort.displayName)
+        }
+        return parts.joinToString(" · ")
+    }
+}
+
+data class SavedSearch(
+    val id: Long = 0L,
+    val name: String,
+    val query: String,
+    val site: CatalogSite = CatalogSite.NYAA,
+    val categoryValue: String = NYAA_CATEGORIES.first().value,
+    val filterValue: Int = FilterOption.ALL.value,
+    val sortFieldValue: String = SortField.DATE.value,
+    val sortOrderValue: String = SortOrder.DESC.value,
+    val notify: Boolean = false,
+    val lastSeenIds: String = "",
+    val lastCheckedAt: Long = 0L
+) {
+    fun toSearchParams(): SearchParams = SearchParams(
+        query = query,
+        site = site,
+        category = categoryByValue(categoryValue, site),
+        filter = filterByValue(filterValue),
+        sortField = sortFieldByValue(sortFieldValue),
+        sortOrder = sortOrderByValue(sortOrderValue),
+        page = 1
+    )
+
+    fun displayName(): String = name.ifBlank { query.ifBlank { "Latest listings" } }
+}
+
+fun SearchParams.toHistoryEntry(timestamp: Long = System.currentTimeMillis()): SearchHistoryEntry =
+    SearchHistoryEntry(
+        query = query.trim(),
+        timestamp = timestamp,
+        site = site,
+        categoryValue = category.value,
+        filterValue = filter.value,
+        sortFieldValue = sortField.value,
+        sortOrderValue = sortOrder.value
+    )
+
+fun SearchParams.toSavedSearch(name: String, notify: Boolean = false): SavedSearch =
+    SavedSearch(
+        name = name.ifBlank { query.ifBlank { "Latest listings" } },
+        query = query.trim(),
+        site = site,
+        categoryValue = category.value,
+        filterValue = filter.value,
+        sortFieldValue = sortField.value,
+        sortOrderValue = sortOrder.value,
+        notify = notify
+    )

@@ -26,14 +26,14 @@ class NyaaRssParserTest {
               <channel>
                 <item>
                   <title>Test &amp; Title</title>
-                  <link>https://nyaa.si/download/123.torrent</link>
-                  <guid isPermaLink="true">https://nyaa.si/view/123</guid>
+                  <link>https://sukebei.nyaa.si/download/123.torrent</link>
+                  <guid isPermaLink="true">https://sukebei.nyaa.si/view/123</guid>
                   <pubDate>Wed, 01 Jan 2025 00:00:00 -0000</pubDate>
                   <nyaa:seeders>10</nyaa:seeders>
                   <nyaa:leechers>2</nyaa:leechers>
                   <nyaa:downloads>100</nyaa:downloads>
                   <nyaa:infoHash>ABCDEF</nyaa:infoHash>
-                  <nyaa:category>Anime - English</nyaa:category>
+                  <nyaa:category>Art - Anime</nyaa:category>
                   <nyaa:size>1.5 GiB</nyaa:size>
                   <nyaa:comments>3</nyaa:comments>
                   <nyaa:trusted>Yes</nyaa:trusted>
@@ -48,12 +48,12 @@ class NyaaRssParserTest {
         val torrent = torrents[0]
         assertEquals("123", torrent.id)
         assertEquals("Test & Title", torrent.title)
-        assertEquals("https://nyaa.si/download/123.torrent", torrent.link)
+        assertEquals("https://sukebei.nyaa.si/download/123.torrent", torrent.link)
         assertEquals(10, torrent.seeders)
         assertEquals(2, torrent.leechers)
         assertEquals(100, torrent.downloads)
         assertEquals("ABCDEF", torrent.infoHash)
-        assertEquals("Anime - English", torrent.category)
+        assertEquals("Art - Anime", torrent.category)
         assertEquals("1.5 GiB", torrent.size)
         assertEquals(3, torrent.comments)
         assertTrue(torrent.trusted)
@@ -73,12 +73,12 @@ class NyaaRssParserTest {
               <channel>
                 <item>
                   <title>One</title>
-                  <guid>https://nyaa.si/view/1</guid>
+                  <guid>https://sukebei.nyaa.si/view/1</guid>
                   <nyaa:infoHash>AAA</nyaa:infoHash>
                 </item>
                 <item>
                   <title>Two</title>
-                  <guid>https://nyaa.si/view/2</guid>
+                  <guid>https://sukebei.nyaa.si/view/2</guid>
                   <nyaa:infoHash>BBB</nyaa:infoHash>
                 </item>
               </channel>

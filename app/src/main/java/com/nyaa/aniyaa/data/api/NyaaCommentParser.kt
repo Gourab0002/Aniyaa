@@ -1,15 +1,18 @@
 package com.nyaa.aniyaa.data.api
 
+import com.nyaa.aniyaa.data.model.CatalogSite
+import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentComment
 import com.nyaa.aniyaa.data.model.TorrentFileEntry
 import com.nyaa.aniyaa.data.model.TorrentPageData
+import com.nyaa.aniyaa.data.network.SiteConfig
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
 object NyaaCommentParser {
 
-    fun parse(html: String): TorrentPageData {
-        val doc = Jsoup.parse(html)
+    fun parse(html: String, baseUrl: String = SiteConfig.baseUrl): TorrentPageData {
+        val doc = Jsoup.parse(html, baseUrl)
 
         val descriptionEl = doc.selectFirst("div#torrent-description")
         val description = descriptionEl?.wholeText()?.trim().orEmpty()
@@ -17,18 +20,26 @@ object NyaaCommentParser {
         val comments = mutableListOf<TorrentComment>()
         val commentElements = doc.select("div#comments div.comment-panel")
         for (element in commentElements) {
-            val links = element.select("a")
-            val username = links.firstOrNull()?.text()?.trim().orEmpty().ifEmpty { "Anonymous" }
+            val userLink = element.selectFirst("a[href*=/user/]")
+            val username = userLink?.text()?.trim().orEmpty()
+                .ifEmpty { element.select("a").firstOrNull()?.text()?.trim().orEmpty() }
+                .ifEmpty { "Anonymous" }
             val avatarSrc = element.selectFirst("img.avatar")?.attr("src").orEmpty()
             val avatarUrl = when {
                 avatarSrc.startsWith("//") -> "https:$avatarSrc"
-                avatarSrc.startsWith("/") -> "https://nyaa.si$avatarSrc"
-                else -> avatarSrc
+                avatarSrc.startsWith("/") -> "$baseUrl$avatarSrc"
+                avatarSrc.startsWith("http") -> avatarSrc
+                avatarSrc.isBlank() -> ""
+                else -> "$baseUrl/$avatarSrc"
             }
-            val date = links.asSequence()
-                .flatMap { it.children().asSequence() }
-                .firstOrNull()
-                ?.text()?.trim().orEmpty()
+            val date = element.selectFirst("small, time, a[href*=#com-] small")?.text()?.trim()
+                .orEmpty()
+                .ifEmpty {
+                    element.select("a").asSequence()
+                        .flatMap { it.children().asSequence() }
+                        .firstOrNull()
+                        ?.text()?.trim().orEmpty()
+                }
             val contentEl = element.selectFirst("div.comment-body div.comment-content")
             val content = contentEl?.wholeText()?.trim().orEmpty()
             val id = element.attr("id").removePrefix("com-")
@@ -52,7 +63,90 @@ object NyaaCommentParser {
             collectFiles(rootUl, prefix = "", out = fileEntries)
         }
 
-        return TorrentPageData(description = description, fileList = fileEntries, comments = comments)
+        val panel = doc.selectFirst("div.panel-heading h3.panel-title")?.parent()?.parent()
+            ?: doc.selectFirst("div.panel")
+        val title = doc.selectFirst("h3.panel-title")?.ownText()?.trim()
+            .orEmpty()
+            .ifEmpty { doc.selectFirst("h3.panel-title")?.text()?.trim().orEmpty() }
+        val submitter = labeledValue(doc, "Submitter")
+            .ifBlank { doc.selectFirst("a[href*=/user/]")?.text()?.trim().orEmpty() }
+            .let { if (it.equals("Anonymous", ignoreCase = true)) "" else it }
+        val category = labeledValue(doc, "Category")
+        val size = labeledValue(doc, "File size")
+        val infoHash = doc.selectFirst("kbd")?.text()?.trim().orEmpty()
+            .ifBlank { labeledValue(doc, "Information hash") }
+        val seeders = labeledValue(doc, "Seeders").filter { it.isDigit() }.toIntOrNull() ?: 0
+        val leechers = labeledValue(doc, "Leechers").filter { it.isDigit() }.toIntOrNull() ?: 0
+        val downloads = labeledValue(doc, "Completed").filter { it.isDigit() }.toIntOrNull()
+            ?: labeledValue(doc, "Downloads").filter { it.isDigit() }.toIntOrNull()
+            ?: 0
+        val magnetLink = doc.selectFirst("a[href^=magnet]")?.attr("href").orEmpty()
+        val downloadUrl = doc.selectFirst("a[href*=/download/]")?.attr("abs:href")
+            .orEmpty()
+            .ifBlank {
+                val href = doc.selectFirst("a[href*=/download/]")?.attr("href").orEmpty()
+                if (href.isNotBlank()) {
+                    SiteConfig.resolveUrl(href, CatalogSite.fromUrl(baseUrl) ?: SiteConfig.currentSite)
+                } else {
+                    ""
+                }
+            }
+        val pubDate = labeledValue(doc, "Date")
+        val panelClass = panel?.className().orEmpty() + " " + doc.selectFirst("div.panel")?.className().orEmpty()
+        val trusted = panelClass.contains("success")
+        val remake = panelClass.contains("danger")
+        val commentsCount = comments.size.takeIf { it > 0 }
+            ?: labeledValue(doc, "Comments").filter { it.isDigit() }.toIntOrNull()
+            ?: 0
+
+        return TorrentPageData(
+            description = description,
+            fileList = fileEntries,
+            comments = comments,
+            submitter = submitter,
+            title = title,
+            category = category,
+            size = size,
+            infoHash = infoHash,
+            seeders = seeders,
+            leechers = leechers,
+            downloads = downloads,
+            commentsCount = commentsCount,
+            trusted = trusted,
+            remake = remake,
+            magnetLink = magnetLink,
+            downloadUrl = downloadUrl,
+            pubDate = pubDate
+        )
+    }
+
+    fun toTorrent(
+        page: TorrentPageData,
+        torrentId: String,
+        fallback: Torrent? = null,
+        site: CatalogSite = fallback?.site ?: SiteConfig.currentSite
+    ): Torrent {
+        val base = SiteConfig.baseUrl(site)
+        return Torrent(
+            id = torrentId.ifBlank { fallback?.id.orEmpty() },
+            title = page.title.ifBlank { fallback?.title.orEmpty() },
+            link = page.downloadUrl.ifBlank { fallback?.link.orEmpty() }.ifBlank { "$base/download/$torrentId.torrent" },
+            guid = fallback?.guid?.ifBlank { null } ?: "$base/view/$torrentId",
+            pubDate = page.pubDate.ifBlank { fallback?.pubDate.orEmpty() },
+            seeders = page.seeders.takeIf { it > 0 } ?: fallback?.seeders ?: 0,
+            leechers = page.leechers.takeIf { it > 0 } ?: fallback?.leechers ?: 0,
+            downloads = page.downloads.takeIf { it > 0 } ?: fallback?.downloads ?: 0,
+            infoHash = page.infoHash.ifBlank { fallback?.infoHash.orEmpty() },
+            category = page.category.ifBlank { fallback?.category.orEmpty() },
+            size = page.size.ifBlank { fallback?.size.orEmpty() },
+            comments = page.commentsCount.takeIf { it > 0 } ?: fallback?.comments ?: page.comments.size,
+            trusted = page.trusted || (fallback?.trusted == true),
+            remake = page.remake || (fallback?.remake == true),
+            magnetLink = page.magnetLink.ifBlank { fallback?.magnetLink.orEmpty() },
+            submitter = page.submitter.ifBlank { fallback?.submitter.orEmpty() },
+            addedAt = fallback?.addedAt ?: 0L,
+            site = site
+        )
     }
 
     internal fun collectFiles(parent: Element, prefix: String, out: MutableList<TorrentFileEntry>) {
@@ -77,5 +171,16 @@ object NyaaCommentParser {
                 }
             }
         }
+    }
+
+    private fun labeledValue(doc: org.jsoup.nodes.Document, label: String): String {
+        val rows = doc.select("div.row")
+        for (row in rows) {
+            val labelEl = row.selectFirst("div.col-md-5") ?: continue
+            if (labelEl.text().trim().trimEnd(':').equals(label, ignoreCase = true)) {
+                return row.selectFirst("div.col-md-7")?.text()?.trim().orEmpty()
+            }
+        }
+        return ""
     }
 }

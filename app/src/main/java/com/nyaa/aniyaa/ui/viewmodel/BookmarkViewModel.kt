@@ -3,63 +3,126 @@ package com.nyaa.aniyaa.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nyaa.aniyaa.AniyaaApplication
 import com.nyaa.aniyaa.data.api.withMagnet
+import com.nyaa.aniyaa.data.model.BookmarkSort
+import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Torrent
-import com.nyaa.aniyaa.data.repository.BookmarkRepository
-import kotlinx.coroutines.Dispatchers
+import com.nyaa.aniyaa.data.repository.filteredAndSorted
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class BookmarkViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = BookmarkRepository(application)
+    private val app = application as AniyaaApplication
+    private val repository = app.bookmarkRepository
+    private val nyaa = app.nyaaRepository
 
-    private val _bookmarks = MutableStateFlow<List<Torrent>>(emptyList())
-    val bookmarks: StateFlow<List<Torrent>> = _bookmarks.asStateFlow()
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
 
-    init {
-        loadBookmarks()
+    private val _sort = MutableStateFlow(BookmarkSort.DATE_ADDED)
+    val sort: StateFlow<BookmarkSort> = _sort.asStateFlow()
+
+    private val _siteFilter = MutableStateFlow<CatalogSite?>(null)
+    val siteFilter: StateFlow<CatalogSite?> = _siteFilter.asStateFlow()
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    val allBookmarks: StateFlow<List<Torrent>> = repository.observe()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val bookmarks: StateFlow<List<Torrent>> = combine(
+        repository.observe(),
+        _query,
+        _sort,
+        _siteFilter
+    ) { list, query, sort, site ->
+        val scoped = if (site == null) list else list.filter { it.site == site }
+        scoped.filteredAndSorted(query, sort)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun updateQuery(value: String) {
+        _query.value = value
     }
 
-    private fun loadBookmarks() {
-        viewModelScope.launch {
-            _bookmarks.value = withContext(Dispatchers.IO) { repository.getBookmarks() }
-        }
+    fun updateSort(value: BookmarkSort) {
+        _sort.value = value
+    }
+
+    fun updateSiteFilter(site: CatalogSite?) {
+        _siteFilter.value = site
     }
 
     fun toggleBookmark(torrent: Torrent) {
-        val identity = torrent.identity()
-        val stored = torrent.withMagnet()
-        val currentlyBookmarked = _bookmarks.value.any { it.identity() == identity }
-        val next = if (currentlyBookmarked) {
-            _bookmarks.value.filter { it.identity() != identity }
-        } else {
-            listOf(stored) + _bookmarks.value
-        }
-        _bookmarks.value = next
-        viewModelScope.launch(Dispatchers.IO) {
-            if (currentlyBookmarked) {
-                repository.removeBookmark(torrent.id.ifEmpty { torrent.infoHash })
+        viewModelScope.launch {
+            val key = torrent.bookmarkKey()
+            val currently = allBookmarks.value.any { it.bookmarkKey() == key }
+            if (currently) {
+                repository.remove(torrent)
             } else {
-                repository.addBookmark(stored)
+                repository.add(torrent.withMagnet())
             }
         }
     }
 
-    fun removeBookmark(torrentId: String) {
-        _bookmarks.value = _bookmarks.value.filter { it.id != torrentId && it.infoHash != torrentId }
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.removeBookmark(torrentId)
+    fun removeBookmark(torrent: Torrent) {
+        viewModelScope.launch { repository.remove(torrent) }
+    }
+
+    fun isBookmarked(torrent: Torrent): Boolean {
+        val key = torrent.bookmarkKey()
+        return allBookmarks.value.any { it.bookmarkKey() == key }
+    }
+
+    fun torrentByNavId(navId: String, site: CatalogSite? = null): Torrent? =
+        allBookmarks.value.find {
+            it.matchesNavId(navId) && (site == null || it.site == site)
+        }
+
+    fun refreshStats() {
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            var updated = 0
+            var failed = 0
+            allBookmarks.value.forEach { torrent ->
+                val id = torrent.id
+                if (id.isBlank()) return@forEach
+                try {
+                    nyaa.fetchTorrent(id, torrent, torrent.site).onSuccess {
+                        repository.update(it.copy(addedAt = torrent.addedAt, site = torrent.site))
+                        updated++
+                    }.onFailure {
+                        failed++
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failed++
+                }
+            }
+            _refreshing.value = false
+            _message.value = when {
+                updated > 0 && failed == 0 -> "Updated $updated bookmark${if (updated == 1) "" else "s"}"
+                updated > 0 -> "Updated $updated, $failed failed"
+                failed > 0 -> "Could not refresh bookmarks"
+                else -> "No bookmarks to refresh"
+            }
         }
     }
 
-    fun isBookmarked(torrentId: String): Boolean {
-        return _bookmarks.value.any { it.id == torrentId || it.infoHash == torrentId }
+    fun consumeMessage() {
+        _message.value = null
     }
-
-    fun torrentByNavId(navId: String): Torrent? =
-        _bookmarks.value.find { it.matchesNavId(navId) }
 }

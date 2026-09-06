@@ -3,56 +3,59 @@ package com.nyaa.aniyaa.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.nyaa.aniyaa.data.repository.SearchHistoryEntry
-import com.nyaa.aniyaa.data.repository.SearchHistoryRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.nyaa.aniyaa.AniyaaApplication
+import com.nyaa.aniyaa.data.model.SavedSearch
+import com.nyaa.aniyaa.data.model.SearchHistoryEntry
+import com.nyaa.aniyaa.data.model.SearchParams
+import com.nyaa.aniyaa.work.SavedSearchWorker
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SearchHistoryViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = SearchHistoryRepository(application)
+    private val app = application as AniyaaApplication
+    private val historyRepository = app.historyRepository
+    private val savedSearchRepository = app.savedSearchRepository
 
-    private val _history = MutableStateFlow<List<SearchHistoryEntry>>(emptyList())
-    val history: StateFlow<List<SearchHistoryEntry>> = _history.asStateFlow()
+    val history: StateFlow<List<SearchHistoryEntry>> = historyRepository.observe()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    init {
-        loadHistory()
-    }
-
-    private fun loadHistory() {
-        viewModelScope.launch {
-            _history.value = withContext(Dispatchers.IO) { repository.getHistory() }
-        }
-    }
+    val savedSearches: StateFlow<List<SavedSearch>> = savedSearchRepository.observe()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun addEntry(query: String) {
+        if (query.isBlank()) return
         viewModelScope.launch {
-            _history.value = withContext(Dispatchers.IO) {
-                repository.addEntry(query)
-                repository.getHistory()
-            }
+            historyRepository.add(SearchParams(query = query))
         }
     }
 
-    fun removeEntry(query: String) {
-        viewModelScope.launch {
-            _history.value = withContext(Dispatchers.IO) {
-                repository.removeEntry(query)
-                repository.getHistory()
-            }
-        }
+    fun addEntry(params: SearchParams) {
+        viewModelScope.launch { historyRepository.add(params) }
+    }
+
+    fun removeEntry(entry: SearchHistoryEntry) {
+        viewModelScope.launch { historyRepository.remove(entry) }
     }
 
     fun clearHistory() {
+        viewModelScope.launch { historyRepository.clear() }
+    }
+
+    fun deleteSavedSearch(id: Long) {
+        viewModelScope.launch { savedSearchRepository.delete(id) }
+    }
+
+    fun toggleNotify(search: SavedSearch) {
         viewModelScope.launch {
-            _history.value = withContext(Dispatchers.IO) {
-                repository.clearHistory()
-                repository.getHistory()
+            savedSearchRepository.update(search.copy(notify = !search.notify))
+            if (!search.notify) {
+                SavedSearchWorker.enqueue(getApplication())
             }
         }
     }
+
+    suspend fun savedSearchById(id: Long): SavedSearch? = savedSearchRepository.getById(id)
 }

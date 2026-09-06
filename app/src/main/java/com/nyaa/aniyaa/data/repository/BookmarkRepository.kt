@@ -1,85 +1,65 @@
 package com.nyaa.aniyaa.data.repository
 
-import android.content.Context
+import com.nyaa.aniyaa.data.api.withMagnet
+import com.nyaa.aniyaa.data.db.AppDatabase
+import com.nyaa.aniyaa.data.db.toBookmarkEntity
+import com.nyaa.aniyaa.data.model.BookmarkSort
 import com.nyaa.aniyaa.data.model.Torrent
-import org.json.JSONArray
-import org.json.JSONObject
+import com.nyaa.aniyaa.util.parseSizeBytes
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-class BookmarkRepository(context: Context) {
+class BookmarkRepository(private val database: AppDatabase) {
 
-    private val prefs = context.getSharedPreferences("bookmarks", Context.MODE_PRIVATE)
+    private val dao = database.bookmarkDao()
 
-    fun getBookmarks(): List<Torrent> {
-        val json = prefs.getString("bookmarks_list", "[]") ?: "[]"
-        return parseBookmarks(json)
+    fun observe(): Flow<List<Torrent>> = dao.observe().map { list -> list.map { it.toTorrent() } }
+
+    suspend fun getAll(): List<Torrent> = dao.getAll().map { it.toTorrent() }
+
+    suspend fun add(torrent: Torrent) {
+        dao.upsert(torrent.withMagnet().toBookmarkEntity())
     }
 
-    fun addBookmark(torrent: Torrent) {
-        val bookmarks = getBookmarks().toMutableList()
-        val identity = torrent.identity()
-        if (bookmarks.none { it.identity() == identity }) {
-            bookmarks.add(0, torrent)
-            saveBookmarks(bookmarks)
+    suspend fun remove(torrent: Torrent) {
+        dao.delete(torrent.bookmarkKey(), torrent.site.id)
+    }
+
+    suspend fun update(torrent: Torrent) {
+        val existing = dao.getAll().find { it.identity == torrent.bookmarkKey() }
+        dao.upsert(torrent.withMagnet().toBookmarkEntity(addedAt = existing?.addedAt ?: torrent.addedAt))
+    }
+
+    suspend fun replaceAll(torrents: List<Torrent>) {
+        dao.deleteAll()
+        if (torrents.isNotEmpty()) {
+            dao.upsertAll(
+                torrents.mapIndexed { index, torrent ->
+                    torrent.withMagnet().toBookmarkEntity(
+                        addedAt = if (torrent.addedAt > 0L) torrent.addedAt else System.currentTimeMillis() - index
+                    )
+                }
+            )
         }
     }
+}
 
-    fun removeBookmark(torrentId: String) {
-        val bookmarks = getBookmarks().filter { it.id != torrentId && it.infoHash != torrentId }
-        saveBookmarks(bookmarks)
-    }
-
-    fun isBookmarked(torrentId: String): Boolean {
-        return getBookmarks().any { it.id == torrentId || it.infoHash == torrentId }
-    }
-
-    private fun torrentToJson(torrent: Torrent): JSONObject = JSONObject().apply {
-        put("id", torrent.id)
-        put("title", torrent.title)
-        put("link", torrent.link)
-        put("guid", torrent.guid)
-        put("pubDate", torrent.pubDate)
-        put("seeders", torrent.seeders)
-        put("leechers", torrent.leechers)
-        put("downloads", torrent.downloads)
-        put("infoHash", torrent.infoHash)
-        put("category", torrent.category)
-        put("size", torrent.size)
-        put("comments", torrent.comments)
-        put("trusted", torrent.trusted)
-        put("remake", torrent.remake)
-        put("magnetLink", torrent.magnetLink)
-    }
-
-    private fun torrentFromJson(obj: JSONObject): Torrent = Torrent(
-        id = obj.optString("id"),
-        title = obj.optString("title"),
-        link = obj.optString("link"),
-        guid = obj.optString("guid"),
-        pubDate = obj.optString("pubDate"),
-        seeders = obj.optInt("seeders"),
-        leechers = obj.optInt("leechers"),
-        downloads = obj.optInt("downloads"),
-        infoHash = obj.optString("infoHash"),
-        category = obj.optString("category"),
-        size = obj.optString("size"),
-        comments = obj.optInt("comments"),
-        trusted = obj.optBoolean("trusted"),
-        remake = obj.optBoolean("remake"),
-        magnetLink = obj.optString("magnetLink")
-    )
-
-    private fun parseBookmarks(json: String): List<Torrent> {
-        return try {
-            val array = JSONArray(json)
-            (0 until array.length()).map { torrentFromJson(array.getJSONObject(it)) }
-        } catch (e: Exception) {
-            emptyList()
+fun List<Torrent>.filteredAndSorted(query: String, sort: BookmarkSort): List<Torrent> {
+    val needle = query.trim()
+    val filtered = if (needle.isEmpty()) {
+        this
+    } else {
+        filter {
+            it.title.contains(needle, ignoreCase = true) ||
+                it.category.contains(needle, ignoreCase = true) ||
+                it.submitter.contains(needle, ignoreCase = true) ||
+                it.site.displayName.contains(needle, ignoreCase = true)
         }
     }
-
-    private fun saveBookmarks(bookmarks: List<Torrent>) {
-        val array = JSONArray()
-        bookmarks.forEach { array.put(torrentToJson(it)) }
-        prefs.edit().putString("bookmarks_list", array.toString()).apply()
+    return when (sort) {
+        BookmarkSort.DATE_ADDED -> filtered.sortedByDescending { it.addedAt }
+        BookmarkSort.TITLE -> filtered.sortedBy { it.title.lowercase() }
+        BookmarkSort.SIZE -> filtered.sortedByDescending { parseSizeBytes(it.size) ?: 0L }
+        BookmarkSort.SEEDERS -> filtered.sortedByDescending { it.seeders }
     }
 }

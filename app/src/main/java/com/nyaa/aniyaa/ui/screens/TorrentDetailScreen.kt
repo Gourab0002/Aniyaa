@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -56,8 +58,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,10 +84,21 @@ import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
+import com.nyaa.aniyaa.data.network.SiteConfig
+import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 import com.nyaa.aniyaa.ui.viewmodel.CommentsUiState
 import com.nyaa.aniyaa.ui.viewmodel.CommentsViewModel
+import com.nyaa.aniyaa.util.FileNode
 import com.nyaa.aniyaa.util.PubDateFormatter
+import com.nyaa.aniyaa.util.buildFileTree
+import com.nyaa.aniyaa.util.copyText
+import com.nyaa.aniyaa.util.downloadTorrentFile
+import com.nyaa.aniyaa.util.openHttpUrl
+import com.nyaa.aniyaa.util.openMagnet
+import com.nyaa.aniyaa.util.shareText as sharePlainText
+import com.nyaa.aniyaa.util.totalSizeLabel
+import com.nyaa.aniyaa.util.torrentShareText
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -96,25 +111,32 @@ import kotlinx.coroutines.launch
 fun TorrentDetailScreen(
     torrent: Torrent,
     onNavigateBack: () -> Unit,
+    onOpenUser: (String) -> Unit = {},
     bookmarkViewModel: BookmarkViewModel = viewModel(),
     commentsViewModel: CommentsViewModel = viewModel(
         key = torrent.id.ifEmpty { torrent.infoHash }.ifEmpty { torrent.guid }
     )
 ) {
     val context = LocalContext.current
+    val prefs = remember { AppPreferences(context) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val bookmarks by bookmarkViewModel.bookmarks.collectAsStateWithLifecycle()
-    val isBookmarked = bookmarks.any { it.identity() == torrent.identity() }
+    val bookmarks by bookmarkViewModel.allBookmarks.collectAsStateWithLifecycle()
+    val isBookmarked = bookmarks.any { it.bookmarkKey() == torrent.bookmarkKey() }
     val commentsState by commentsViewModel.uiState.collectAsStateWithLifecycle()
-    val formattedDate = remember(torrent.pubDate) { PubDateFormatter.format(torrent.pubDate) }
-    val magnetLink = remember(torrent.infoHash, torrent.title, torrent.magnetLink) {
-        torrent.resolvedMagnet()
+    val displayTorrent = commentsState.resolvedTorrent?.takeIf {
+        it.site == torrent.site && (it.id == torrent.id || it.identity() == torrent.identity())
     }
+        ?: torrent
+    val formattedDate = remember(displayTorrent.pubDate) { PubDateFormatter.format(displayTorrent.pubDate) }
+    val magnetLink = remember(displayTorrent.infoHash, displayTorrent.title, displayTorrent.magnetLink) {
+        displayTorrent.resolvedMagnet()
+    }
+    val submitter = commentsState.submitter.ifBlank { displayTorrent.submitter }
 
     LaunchedEffect(torrent.id) {
         if (torrent.id.isNotBlank()) {
-            commentsViewModel.fetchComments(torrent.id)
+            commentsViewModel.fetchComments(torrent.id, torrent, torrent.site)
         }
     }
 
@@ -123,35 +145,7 @@ fun TorrentDetailScreen(
     }
 
     fun openUrl(url: String) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: ActivityNotFoundException) {
-            showMessage("No app found to open this link")
-        } catch (e: Exception) {
-            showMessage("Could not open link: ${e.message}")
-        }
-    }
-
-    fun copyToClipboard(text: String, label: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-        showMessage("Copied to clipboard")
-    }
-
-    fun downloadTorrent(downloadUrl: String) {
-        openUrl(downloadUrl)
-    }
-
-    fun shareText(text: String) {
-        try {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, text)
-            }
-            context.startActivity(Intent.createChooser(intent, "Share"))
-        } catch (e: Exception) {
-            showMessage("Could not share: ${e.message}")
-        }
+        openHttpUrl(context, url)?.let { showMessage(it) }
     }
 
     Scaffold(
@@ -207,19 +201,19 @@ fun TorrentDetailScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = torrent.title,
+                        text = displayTorrent.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
-                    if (torrent.category.isNotEmpty()) {
+                    if (displayTorrent.category.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.1f)
                         ) {
                             Text(
-                                text = torrent.category,
+                                text = displayTorrent.category,
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -230,10 +224,10 @@ fun TorrentDetailScreen(
             }
             }
 
-            if (torrent.trusted || torrent.remake) {
+            if (displayTorrent.trusted || displayTorrent.remake) {
                 item(key = "badges") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (torrent.trusted) {
+                    if (displayTorrent.trusted) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = NyaaTrusted.copy(alpha = 0.12f)
@@ -247,7 +241,7 @@ fun TorrentDetailScreen(
                             )
                         }
                     }
-                    if (torrent.remake) {
+                    if (displayTorrent.remake) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = NyaaRemake.copy(alpha = 0.12f)
@@ -285,16 +279,16 @@ fun TorrentDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        StatItem(label = "Size", value = torrent.size)
-                        StatItem(label = "Seeders", value = torrent.seeders.toString(), valueColor = NyaaSeeder)
-                        StatItem(label = "Leechers", value = torrent.leechers.toString(), valueColor = NyaaLeecher)
-                        StatItem(label = "Downloads", value = torrent.downloads.toString())
+                        StatItem(label = "Size", value = displayTorrent.size)
+                        StatItem(label = "Seeders", value = displayTorrent.seeders.toString(), valueColor = NyaaSeeder)
+                        StatItem(label = "Leechers", value = displayTorrent.leechers.toString(), valueColor = NyaaLeecher)
+                        StatItem(label = "Downloads", value = displayTorrent.downloads.toString())
                     }
-                    if (torrent.comments > 0) {
+                    if (displayTorrent.comments > 0) {
                         Spacer(Modifier.height(12.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Spacer(Modifier.height(12.dp))
-                        StatItem(label = "Comments", value = torrent.comments.toString())
+                        StatItem(label = "Comments", value = displayTorrent.comments.toString())
                     }
                 }
             }
@@ -316,12 +310,25 @@ fun TorrentDetailScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(16.dp))
-                    InfoRow(label = "Date", value = formattedDate.ifEmpty { torrent.pubDate })
-                    if (torrent.infoHash.isNotEmpty()) {
+                    InfoRow(label = "Date", value = formattedDate.ifEmpty { displayTorrent.pubDate })
+                    if (submitter.isNotBlank()) {
                         Spacer(Modifier.height(10.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Spacer(Modifier.height(10.dp))
-                        InfoRow(label = "Info Hash", value = torrent.infoHash)
+                        InfoRow(label = "Uploader", value = submitter, onClick = { onOpenUser(submitter) })
+                    }
+                    if (displayTorrent.infoHash.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Spacer(Modifier.height(10.dp))
+                        InfoRow(
+                            label = "Info Hash",
+                            value = displayTorrent.infoHash,
+                            onClick = {
+                                copyText(context, "Info Hash", displayTorrent.infoHash)
+                                showMessage("Copied info hash")
+                            }
+                        )
                     }
                 }
             }
@@ -344,7 +351,7 @@ fun TorrentDetailScreen(
                         )
                         Spacer(Modifier.height(12.dp))
                         Button(
-                            onClick = { commentsViewModel.retry(torrent.id) },
+                            onClick = { commentsViewModel.retry(torrent.id, torrent, torrent.site) },
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("Retry")
@@ -401,7 +408,7 @@ fun TorrentDetailScreen(
                     ) {
                         if (magnetLink.isNotEmpty()) {
                             FilledTonalButton(
-                                onClick = { openUrl(magnetLink) },
+                                onClick = { openMagnet(context, magnetLink, prefs.preferredTorrentPackage)?.let(::showMessage) },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -410,7 +417,10 @@ fun TorrentDetailScreen(
                                 Text("Magnet", maxLines = 1, fontWeight = FontWeight.SemiBold)
                             }
                             OutlinedButton(
-                                onClick = { copyToClipboard(magnetLink, "Magnet Link") },
+                                onClick = {
+                                    copyText(context, "Magnet Link", magnetLink)
+                                    showMessage("Copied to clipboard")
+                                },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -419,9 +429,9 @@ fun TorrentDetailScreen(
                                 Text("Copy Magnet", maxLines = 1)
                             }
                         }
-                        if (torrent.link.isNotEmpty()) {
+                        if (displayTorrent.link.isNotEmpty()) {
                             FilledTonalButton(
-                                onClick = { downloadTorrent(torrent.link) },
+                                onClick = { showMessage(downloadTorrentFile(context, displayTorrent)) },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -431,12 +441,7 @@ fun TorrentDetailScreen(
                             }
                         }
                         OutlinedButton(
-                            onClick = {
-                                val textToShare = "${torrent.title}\n\n" +
-                                    (if (magnetLink.isNotEmpty()) "Magnet: $magnetLink\n" else "") +
-                                    (if (torrent.guid.isNotEmpty()) "Page: ${torrent.guid}" else "")
-                                shareText(textToShare)
-                            },
+                            onClick = { sharePlainText(context, torrentShareText(displayTorrent))?.let(::showMessage) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -444,15 +449,15 @@ fun TorrentDetailScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Share", maxLines = 1)
                         }
-                        if (torrent.guid.isNotEmpty()) {
+                        if (displayTorrent.guid.isNotEmpty()) {
                             OutlinedButton(
-                                onClick = { openUrl(torrent.guid) },
+                                onClick = { openUrl(displayTorrent.guid) },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("View on Nyaa", maxLines = 1)
+                                Text(displayTorrent.site.viewOnLabel, maxLines = 1)
                             }
                         }
                     }
@@ -462,14 +467,19 @@ fun TorrentDetailScreen(
 
             if (commentsState.fileList.isNotEmpty()) {
                 item(key = "files-header") {
-                    FileListHeader(count = commentsState.fileList.size)
+                    FileListHeader(
+                        count = commentsState.fileList.size,
+                        totalSize = totalSizeLabel(commentsState.fileList)
+                    )
                 }
-                itemsIndexed(
-                    items = commentsState.fileList,
-                    key = { index, file -> "file-$index-${file.name}" },
-                    contentType = { _, _ -> "file" }
-                ) { _, file ->
-                    FileListItem(file = file)
+                item(key = "files-tree") {
+                    FileTree(
+                        nodes = buildFileTree(commentsState.fileList),
+                        onCopyPath = { path ->
+                            copyText(context, "File path", path)
+                            showMessage("Copied path")
+                        }
+                    )
                 }
             }
 
@@ -477,7 +487,7 @@ fun TorrentDetailScreen(
                 CommentsHeader(
                     commentsState = commentsState,
                     torrent = torrent,
-                    onRetry = { commentsViewModel.retry(torrent.id) },
+                    onRetry = { commentsViewModel.retry(torrent.id, torrent, torrent.site) },
                     onOpenPage = { if (torrent.guid.isNotEmpty()) openUrl(torrent.guid) }
                 )
             }
@@ -487,7 +497,14 @@ fun TorrentDetailScreen(
                     key = { index, comment -> "com-${comment.id.ifEmpty { index.toString() }}" },
                     contentType = { _, _ -> "comment" }
                 ) { _, comment ->
-                    CommentItem(comment = comment)
+                    CommentItem(
+                        comment = comment,
+                        onOpenUser = { if (comment.username.isNotBlank()) onOpenUser(comment.username) },
+                        onOpenPermalink = {
+                            val base = displayTorrent.guid.ifBlank { "${SiteConfig.baseUrl(displayTorrent.site)}/view/${displayTorrent.id}" }
+                            if (comment.id.isNotBlank()) openUrl("$base#com-${comment.id}")
+                        }
+                    )
                 }
             }
 
@@ -499,7 +516,11 @@ fun TorrentDetailScreen(
 }
 
 @Composable
-private fun CommentItem(comment: TorrentComment) {
+private fun CommentItem(
+    comment: TorrentComment,
+    onOpenUser: () -> Unit = {},
+    onOpenPermalink: () -> Unit = {}
+) {
     val avatarSize = 36.dp
     val avatarSpacing = 10.dp
 
@@ -543,12 +564,14 @@ private fun CommentItem(comment: TorrentComment) {
                     text = comment.username,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onOpenUser)
                 )
                 Text(
-                    text = comment.date,
+                    text = comment.date.ifBlank { "Permalink" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.clickable(onClick = onOpenPermalink)
                 )
             }
         }
@@ -616,8 +639,12 @@ private fun StatItem(
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+private fun InfoRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
@@ -628,14 +655,14 @@ private fun InfoRow(label: String, value: String) {
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (onClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
     }
 }
 
 @Composable
-private fun FileListHeader(count: Int) {
+private fun FileListHeader(count: Int, totalSize: String = "") {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -651,13 +678,65 @@ private fun FileListHeader(count: Int) {
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Text(
-                text = "$count",
+                text = if (totalSize.isBlank()) "$count" else "$count · $totalSize",
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.Bold
             )
         }
+    }
+}
+
+@Composable
+private fun FileTree(nodes: List<FileNode>, onCopyPath: (String) -> Unit, indent: Int = 0) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        nodes.forEach { node ->
+            FileTreeNode(node = node, onCopyPath = onCopyPath, indent = indent)
+        }
+    }
+}
+
+@Composable
+private fun FileTreeNode(node: FileNode, onCopyPath: (String) -> Unit, indent: Int) {
+    var expanded by remember(node.path) { mutableStateOf(indent == 0 && !node.isFolder) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                if (node.isFolder) expanded = !expanded else onCopyPath(node.path)
+            }
+            .padding(start = (indent * 16).dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            if (node.isFolder) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.outline
+        )
+        Text(
+            text = node.name,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (node.size.isNotEmpty()) {
+            Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                Text(
+                    text = node.size,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+    if (node.isFolder && expanded) {
+        FileTree(nodes = node.children, onCopyPath = onCopyPath, indent = indent + 1)
     }
 }
 

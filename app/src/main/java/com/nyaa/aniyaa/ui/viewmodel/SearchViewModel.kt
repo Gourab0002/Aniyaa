@@ -1,14 +1,23 @@
 package com.nyaa.aniyaa.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nyaa.aniyaa.AniyaaApplication
+import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Category
 import com.nyaa.aniyaa.data.model.FilterOption
+import com.nyaa.aniyaa.data.model.SavedSearch
+import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
-import com.nyaa.aniyaa.data.repository.NyaaRepository
+import com.nyaa.aniyaa.data.model.sortFieldByValue
+import com.nyaa.aniyaa.data.model.sortOrderByValue
+import com.nyaa.aniyaa.data.model.toSavedSearch
+import com.nyaa.aniyaa.data.network.SiteConfig
+import com.nyaa.aniyaa.data.network.toUserMessage
 import com.nyaa.aniyaa.data.repository.mergeSearchPages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -21,6 +30,7 @@ import kotlinx.coroutines.launch
 data class SearchUiState(
     val torrents: List<Torrent> = emptyList(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val canLoadMore: Boolean = true,
     val error: String? = null,
@@ -28,19 +38,27 @@ data class SearchUiState(
     val hasSearched: Boolean = false
 )
 
-class SearchViewModel : ViewModel() {
+class SearchViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = NyaaRepository()
+    private val app = application as AniyaaApplication
+    private val repository = app.nyaaRepository
+    private val prefs = app.prefs
+    private val historyRepository = app.historyRepository
+    private val savedSearchRepository = app.savedSearchRepository
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    private val _uiState = MutableStateFlow(SearchUiState())
+    private val _uiState = MutableStateFlow(SearchUiState(searchParams = prefs.defaultSearchParams()))
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null
     private var requestGeneration: Long = 0L
+
+    init {
+        search()
+    }
 
     fun updateQuery(query: String) {
         _query.value = query
@@ -62,22 +80,69 @@ class SearchViewModel : ViewModel() {
         _uiState.update { it.copy(searchParams = it.searchParams.copy(sortOrder = sortOrder)) }
     }
 
-    fun resetFilters() {
-        _uiState.update { state ->
-            state.copy(searchParams = SearchParams(query = _query.value))
+    fun switchSite(site: CatalogSite) {
+        if (_uiState.value.searchParams.site == site) return
+        prefs.currentSite = site
+        SiteConfig.currentSite = site
+        val defaults = prefs.defaultSearchParams(site).copy(query = _query.value)
+        _uiState.update {
+            it.copy(
+                searchParams = defaults,
+                torrents = emptyList(),
+                hasSearched = false,
+                error = null,
+                canLoadMore = true
+            )
         }
+        search()
     }
 
-    fun search() {
+    fun applyParams(params: SearchParams, recordHistory: Boolean = true) {
+        val valid = params.withValidCategory()
+        if (valid.site != prefs.currentSite) {
+            prefs.currentSite = valid.site
+            SiteConfig.currentSite = valid.site
+        }
+        _query.value = valid.query
+        _uiState.update { it.copy(searchParams = valid.copy(page = 1)) }
+        search(recordHistory = recordHistory)
+    }
+
+    fun applyHistory(entry: SearchHistoryEntry) {
+        applyParams(entry.toSearchParams())
+    }
+
+    fun applySavedSearch(search: SavedSearch) {
+        applyParams(search.toSearchParams())
+    }
+
+    fun resetFilters() {
+        val site = _uiState.value.searchParams.site
+        val defaults = SearchParams(
+            query = _query.value,
+            site = site,
+            category = prefs.defaultCategory(site),
+            filter = FilterOption.ALL,
+            sortField = sortFieldByValue(prefs.defaultSortFieldValue(site)),
+            sortOrder = sortOrderByValue(prefs.defaultSortOrderValue(site))
+        )
+        _uiState.update { it.copy(searchParams = defaults) }
+    }
+
+    fun search(recordHistory: Boolean = true, forceNetwork: Boolean = false) {
         loadMoreJob?.cancel()
         searchJob?.cancel()
 
-        val params = _uiState.value.searchParams.copy(query = _query.value, page = 1)
+        val params = _uiState.value.searchParams.copy(query = _query.value, page = 1).withValidCategory()
         val generation = ++requestGeneration
+        prefs.persistFilters(params)
 
+        val hadResults = _uiState.value.torrents.isNotEmpty() &&
+            _uiState.value.searchParams.site == params.site
         _uiState.update {
             it.copy(
-                isLoading = true,
+                isLoading = !hadResults,
+                isRefreshing = hadResults,
                 isLoadingMore = false,
                 error = null,
                 searchParams = params,
@@ -85,9 +150,34 @@ class SearchViewModel : ViewModel() {
             )
         }
 
+        if (recordHistory && params.query.isNotBlank()) {
+            viewModelScope.launch {
+                historyRepository.add(params)
+            }
+        }
+
         searchJob = viewModelScope.launch {
+            if (!forceNetwork && !hadResults) {
+                val cached = runCatching { repository.search(params, fromCache = true) }.getOrNull()
+                val cachedList = cached?.getOrNull().orEmpty()
+                if (generation != requestGeneration) return@launch
+                if (cachedList.isNotEmpty()) {
+                    val (merged, canLoadMore) = mergeSearchPages(emptyList(), cachedList, replace = true)
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = true,
+                            torrents = merged,
+                            hasSearched = true,
+                            canLoadMore = canLoadMore,
+                            error = null
+                        )
+                    }
+                }
+            }
+
             val result = try {
-                repository.search(params)
+                repository.search(params, forceNetwork = forceNetwork)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -100,6 +190,7 @@ class SearchViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             torrents = merged,
                             hasSearched = true,
                             canLoadMore = canLoadMore,
@@ -112,7 +203,8 @@ class SearchViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = e.message ?: "Unknown error",
+                            isRefreshing = false,
+                            error = e.toUserMessage(),
                             hasSearched = true
                         )
                     }
@@ -120,6 +212,8 @@ class SearchViewModel : ViewModel() {
             )
         }
     }
+
+    fun refresh() = search(recordHistory = false, forceNetwork = true)
 
     fun loadNextPage() {
         if (searchJob?.isActive == true || loadMoreJob?.isActive == true) return
@@ -163,7 +257,7 @@ class SearchViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             isLoadingMore = false,
-                            error = e.message ?: "Unknown error"
+                            error = e.toUserMessage()
                         )
                     }
                 }
@@ -175,6 +269,13 @@ class SearchViewModel : ViewModel() {
         _uiState.update { it.copy(error = null) }
     }
 
-    fun torrentByNavId(navId: String): Torrent? =
-        _uiState.value.torrents.find { it.matchesNavId(navId) }
+    fun torrentByNavId(navId: String, site: CatalogSite? = null): Torrent? =
+        _uiState.value.torrents.find {
+            it.matchesNavId(navId) && (site == null || it.site == site)
+        }
+
+    suspend fun saveCurrentSearch(name: String, notify: Boolean): Long {
+        val params = _uiState.value.searchParams.copy(query = _query.value)
+        return savedSearchRepository.add(params.toSavedSearch(name, notify))
+    }
 }

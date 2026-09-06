@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.nyaa.aniyaa.data.model.DarkMode
 
 private val DefaultDarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -173,10 +174,16 @@ private val lightSchemes = listOf(
 
 @Composable
 fun AniyaaTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkMode: DarkMode = DarkMode.SYSTEM,
     themeIndex: Int = 0,
     content: @Composable () -> Unit
 ) {
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = when (darkMode) {
+        DarkMode.SYSTEM -> systemDark
+        DarkMode.LIGHT -> false
+        DarkMode.DARK -> true
+    }
     val index = themeIndex.coerceIn(0, APP_THEMES.lastIndex)
     val colorScheme = when {
         themeIndex == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {

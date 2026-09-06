@@ -1,6 +1,7 @@
 package com.nyaa.aniyaa.data.repository
 
-import com.nyaa.aniyaa.data.model.CATEGORIES
+import com.nyaa.aniyaa.data.model.CatalogSite
+import com.nyaa.aniyaa.data.model.NYAA_CATEGORIES
 import com.nyaa.aniyaa.data.model.FilterOption
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.SortField
@@ -26,7 +27,7 @@ class NyaaRepositoryTest {
         leechers = 0,
         downloads = 0,
         infoHash = infoHash,
-        category = "Anime",
+        category = "Art",
         size = "1.0 MiB",
         comments = 0,
         trusted = false,
@@ -79,7 +80,7 @@ class NyaaRepositoryTest {
     fun buildSearchUrl_omitsPageForFirstPage() {
         val params = SearchParams(
             query = "test query",
-            category = CATEGORIES[1],
+            category = NYAA_CATEGORIES[1],
             filter = FilterOption.TRUSTED,
             sortField = SortField.SEEDERS,
             sortOrder = SortOrder.ASC,
@@ -96,7 +97,7 @@ class NyaaRepositoryTest {
     fun buildSearchUrl_includesPageForNextPages() {
         val params = SearchParams(
             query = "another test",
-            category = CATEGORIES[2],
+            category = NYAA_CATEGORIES[2],
             filter = FilterOption.NO_REMAKES,
             sortField = SortField.DOWNLOADS,
             sortOrder = SortOrder.DESC,
@@ -107,5 +108,35 @@ class NyaaRepositoryTest {
             "https://nyaa.si/?page=rss&q=another+test&c=1_1&f=1&s=downloads&o=desc&p=3",
             buildSearchUrl(params)
         )
+    }
+
+    @Test
+    fun buildSearchUrl_usesSukebeiHostForSukebeiSite() {
+        val params = SearchParams(
+            query = "test",
+            site = CatalogSite.SUKEBEI,
+            category = CatalogSite.SUKEBEI.categories[1]
+        )
+        assertEquals(
+            "https://sukebei.nyaa.si/?page=rss&q=test&c=1_0&f=0&s=id&o=desc",
+            buildSearchUrl(params)
+        )
+    }
+
+    @Test
+    fun buildSearchUrl_userQueryUsesUserPath() {
+        val params = SearchParams(query = "user:alice extra")
+        val url = buildSearchUrl(params, baseUrl = "https://sukebei.nyaa.si")
+        assertTrue(url.startsWith("https://sukebei.nyaa.si/user/alice?"))
+        assertTrue(url.contains("u=alice"))
+        assertTrue(url.contains("q=extra"))
+    }
+
+    @Test
+    fun buildSearchUrl_htmlModeOmitsRssPage() {
+        val params = SearchParams(query = "foo")
+        val url = buildSearchUrl(params, rss = false)
+        assertFalse(url.contains("page=rss"))
+        assertTrue(url.contains("q=foo"))
     }
 }

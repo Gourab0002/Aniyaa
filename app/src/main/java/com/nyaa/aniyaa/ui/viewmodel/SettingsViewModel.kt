@@ -1,0 +1,149 @@
+package com.nyaa.aniyaa.ui.viewmodel
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.nyaa.aniyaa.AniyaaApplication
+import com.nyaa.aniyaa.data.backup.BackupManager
+import com.nyaa.aniyaa.data.model.CatalogSite
+import com.nyaa.aniyaa.data.model.DarkMode
+import com.nyaa.aniyaa.data.update.AppUpdate
+import com.nyaa.aniyaa.data.update.UpdateChecker
+import com.nyaa.aniyaa.work.SavedSearchWorker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val app = application as AniyaaApplication
+    val prefs = app.prefs
+    private val backupManager = BackupManager(
+        bookmarks = app.bookmarkRepository,
+        history = app.historyRepository,
+        savedSearches = app.savedSearchRepository,
+        prefs = prefs
+    )
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _update = MutableStateFlow<AppUpdate?>(null)
+    val update: StateFlow<AppUpdate?> = _update.asStateFlow()
+
+    private val _checkingUpdate = MutableStateFlow(false)
+    val checkingUpdate: StateFlow<Boolean> = _checkingUpdate.asStateFlow()
+
+    fun setThemeIndex(index: Int) {
+        prefs.themeIndex = index
+    }
+
+    fun setDarkMode(mode: DarkMode) {
+        prefs.darkMode = mode
+    }
+
+    fun setBaseUrl(site: CatalogSite, url: String) {
+        prefs.setBaseUrl(site, url)
+        _message.value = "Using ${prefs.baseUrl(site)}"
+    }
+
+    fun setCurrentSite(site: CatalogSite) {
+        prefs.currentSite = site
+        if (site.nsfw) prefs.sukebeiAcknowledged = true
+    }
+
+    fun acknowledgeSukebei() {
+        prefs.sukebeiAcknowledged = true
+    }
+
+    fun setDefaultCategory(value: String, site: CatalogSite = prefs.currentSite) {
+        prefs.setDefaultCategoryValue(site, value)
+    }
+
+    fun setDefaultSortField(value: String, site: CatalogSite = prefs.currentSite) {
+        prefs.setDefaultSortFieldValue(site, value)
+    }
+
+    fun setDefaultSortOrder(value: String, site: CatalogSite = prefs.currentSite) {
+        prefs.setDefaultSortOrderValue(site, value)
+    }
+
+    fun setPreferredTorrentPackage(value: String) {
+        prefs.preferredTorrentPackage = value
+    }
+
+    fun setLockEnabled(enabled: Boolean) {
+        if (enabled && !prefs.hasPin) {
+            _message.value = "Set a PIN first"
+            return
+        }
+        prefs.lockEnabled = enabled
+        if (enabled) {
+            prefs.hideScreenshots = true
+            app.lockController.lock()
+        }
+    }
+
+    fun setPin(pin: String) {
+        prefs.setPin(pin)
+        _message.value = "PIN saved"
+    }
+
+    fun setHideScreenshots(enabled: Boolean) {
+        prefs.hideScreenshots = enabled
+    }
+
+    fun setHideFromRecents(enabled: Boolean) {
+        prefs.hideFromRecents = enabled
+    }
+
+    fun consumeMessage() {
+        _message.value = null
+    }
+
+    fun checkForUpdates(manual: Boolean = true) {
+        viewModelScope.launch {
+            _checkingUpdate.value = true
+            val result = withContext(Dispatchers.IO) { UpdateChecker.check() }
+            _checkingUpdate.value = false
+            result.fold(
+                onSuccess = { update ->
+                    prefs.lastUpdateCheckAt = System.currentTimeMillis()
+                    if (update == null) {
+                        if (manual) _message.value = "You're on the latest version"
+                        _update.value = null
+                    } else if (update.versionName == prefs.dismissedUpdateVersion && !manual) {
+                        _update.value = null
+                    } else {
+                        _update.value = update
+                    }
+                },
+                onFailure = {
+                    if (manual) _message.value = "Could not check for updates"
+                }
+            )
+        }
+    }
+
+    fun dismissUpdate() {
+        _update.value?.let { prefs.dismissedUpdateVersion = it.versionName }
+        _update.value = null
+    }
+
+    suspend fun exportBackup(): String = withContext(Dispatchers.IO) { backupManager.exportJson() }
+
+    fun importBackup(json: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { backupManager.importJson(json) }
+                SavedSearchWorker.enqueue(getApplication())
+                _message.value = "Backup restored"
+            } catch (e: Exception) {
+                _message.value = e.message ?: "Could not restore backup"
+            }
+        }
+    }
+}

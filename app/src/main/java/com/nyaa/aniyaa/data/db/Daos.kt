@@ -1,0 +1,83 @@
+package com.nyaa.aniyaa.data.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface BookmarkDao {
+    @Query("SELECT * FROM bookmarks ORDER BY addedAt DESC")
+    fun observe(): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks ORDER BY addedAt DESC")
+    suspend fun getAll(): List<BookmarkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: BookmarkEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<BookmarkEntity>)
+
+    @Query(
+        "DELETE FROM bookmarks WHERE identity = :identity OR " +
+            "(site = :site AND (torrentId = :identity OR infoHash = :identity))"
+    )
+    suspend fun delete(identity: String, site: String)
+
+    @Query("DELETE FROM bookmarks")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface HistoryDao {
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
+    fun observe(): Flow<List<HistoryEntity>>
+
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
+    suspend fun getAll(): List<HistoryEntity>
+
+    @Insert
+    suspend fun insert(entity: HistoryEntity): Long
+
+    @Query("DELETE FROM search_history WHERE site = :site AND LOWER(query) = LOWER(:query)")
+    suspend fun deleteByQuery(site: String, query: String)
+
+    @Query(
+        "DELETE FROM search_history WHERE site = :site AND id NOT IN " +
+            "(SELECT id FROM search_history WHERE site = :site ORDER BY timestamp DESC LIMIT :keep)"
+    )
+    suspend fun trim(site: String, keep: Int)
+
+    @Query("DELETE FROM search_history")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface SavedSearchDao {
+    @Query("SELECT * FROM saved_searches ORDER BY id DESC")
+    fun observe(): Flow<List<SavedSearchEntity>>
+
+    @Query("SELECT * FROM saved_searches ORDER BY id DESC")
+    suspend fun getAll(): List<SavedSearchEntity>
+
+    @Query("SELECT * FROM saved_searches WHERE notify = 1")
+    suspend fun getNotifying(): List<SavedSearchEntity>
+
+    @Query("SELECT * FROM saved_searches WHERE id = :id")
+    suspend fun getById(id: Long): SavedSearchEntity?
+
+    @Insert
+    suspend fun insert(entity: SavedSearchEntity): Long
+
+    @Update
+    suspend fun update(entity: SavedSearchEntity)
+
+    @Query("DELETE FROM saved_searches WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM saved_searches")
+    suspend fun deleteAll()
+}
