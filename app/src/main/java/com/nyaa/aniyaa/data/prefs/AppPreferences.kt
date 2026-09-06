@@ -30,15 +30,34 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putString(KEY_DARK_MODE, value.value).apply()
 
     var currentSite: CatalogSite
-        get() = CatalogSite.fromId(prefs.getString(KEY_CURRENT_SITE, CatalogSite.NYAA.id).orEmpty())
+        get() {
+            val stored = CatalogSite.fromId(prefs.getString(KEY_CURRENT_SITE, CatalogSite.NYAA.id).orEmpty())
+            return if (stored.nsfw && !sukebeiEnabled) CatalogSite.NYAA else stored
+        }
         set(value) {
-            prefs.edit().putString(KEY_CURRENT_SITE, value.id).apply()
-            SiteConfig.currentSite = value
+            val resolved = if (value.nsfw && !sukebeiEnabled) CatalogSite.NYAA else value
+            prefs.edit().putString(KEY_CURRENT_SITE, resolved.id).apply()
+            SiteConfig.currentSite = resolved
         }
 
     var sukebeiAcknowledged: Boolean
         get() = prefs.getBoolean(KEY_SUKEBEI_ACK, false)
         set(value) = prefs.edit().putBoolean(KEY_SUKEBEI_ACK, value).apply()
+
+    var sukebeiEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SUKEBEI_ENABLED, sukebeiAcknowledged)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SUKEBEI_ENABLED, value).apply()
+            if (value) {
+                sukebeiAcknowledged = true
+            } else if (CatalogSite.fromId(prefs.getString(KEY_CURRENT_SITE, "").orEmpty()).nsfw) {
+                currentSite = CatalogSite.NYAA
+            }
+        }
+
+    var onboardingComplete: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING, false)
+        set(value) = prefs.edit().putBoolean(KEY_ONBOARDING, value).apply()
 
     var preferredTorrentPackage: String
         get() = prefs.getString(KEY_TORRENT_PACKAGE, "").orEmpty()
@@ -173,6 +192,8 @@ class AppPreferences(context: Context) {
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_CURRENT_SITE = "current_site"
         private const val KEY_SUKEBEI_ACK = "sukebei_ack"
+        private const val KEY_SUKEBEI_ENABLED = "sukebei_enabled"
+        private const val KEY_ONBOARDING = "onboarding_complete"
         private const val KEY_DEFAULT_CATEGORY = "default_category"
         private const val KEY_DEFAULT_SORT_FIELD = "default_sort_field"
         private const val KEY_DEFAULT_SORT_ORDER = "default_sort_order"

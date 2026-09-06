@@ -1,5 +1,9 @@
 package com.nyaa.aniyaa.ui.screens
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,9 +45,13 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +61,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.SavedSearch
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
+import com.nyaa.aniyaa.util.hasNotificationPermission
+import com.nyaa.aniyaa.util.prepareSavedSearchAlerts
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,8 +77,19 @@ fun SearchHistoryScreen(
 ) {
     val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
     val saved by searchHistoryViewModel.savedSearches.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var pendingNotifyId by remember { mutableStateOf<Long?>(null) }
+    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val id = pendingNotifyId
+        pendingNotifyId = null
+        if (granted && id != null) {
+            prepareSavedSearchAlerts(context)
+            saved.find { it.id == id }?.let { searchHistoryViewModel.toggleNotify(it) }
+        }
+    }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -161,7 +182,20 @@ fun SearchHistoryScreen(
                             SavedSearchCard(
                                 search = search,
                                 onClick = { onSavedSearchClick(search) },
-                                onToggleNotify = { searchHistoryViewModel.toggleNotify(search) },
+                                onToggleNotify = {
+                                    if (search.notify) {
+                                        searchHistoryViewModel.toggleNotify(search)
+                                    } else if (hasNotificationPermission(context)) {
+                                        prepareSavedSearchAlerts(context)
+                                        searchHistoryViewModel.toggleNotify(search)
+                                    } else if (Build.VERSION.SDK_INT >= 33) {
+                                        pendingNotifyId = search.id
+                                        notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        prepareSavedSearchAlerts(context)
+                                        searchHistoryViewModel.toggleNotify(search)
+                                    }
+                                },
                                 onDelete = { searchHistoryViewModel.deleteSavedSearch(search.id) }
                             )
                         }

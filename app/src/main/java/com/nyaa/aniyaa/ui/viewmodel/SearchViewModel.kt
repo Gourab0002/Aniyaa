@@ -57,7 +57,13 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private var requestGeneration: Long = 0L
 
     init {
-        search()
+        if (!prefs.sukebeiEnabled && _uiState.value.searchParams.site.nsfw) {
+            val nyaa = prefs.defaultSearchParams(CatalogSite.NYAA)
+            prefs.currentSite = CatalogSite.NYAA
+            SiteConfig.currentSite = CatalogSite.NYAA
+            _uiState.update { it.copy(searchParams = nyaa) }
+        }
+        restoreFromCache()
     }
 
     fun updateQuery(query: String) {
@@ -81,6 +87,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun switchSite(site: CatalogSite) {
+        if (site.nsfw && !prefs.sukebeiEnabled) return
         if (_uiState.value.searchParams.site == site) return
         prefs.currentSite = site
         SiteConfig.currentSite = site
@@ -90,15 +97,24 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 searchParams = defaults,
                 torrents = emptyList(),
                 hasSearched = false,
+                isLoading = false,
+                isRefreshing = false,
                 error = null,
                 canLoadMore = true
             )
         }
-        search()
+        if (_query.value.isNotBlank()) {
+            search()
+        } else {
+            restoreFromCache()
+        }
     }
 
     fun applyParams(params: SearchParams, recordHistory: Boolean = true) {
         val valid = params.withValidCategory()
+        if (valid.site.nsfw && !prefs.sukebeiEnabled) {
+            prefs.sukebeiEnabled = true
+        }
         if (valid.site != prefs.currentSite) {
             prefs.currentSite = valid.site
             SiteConfig.currentSite = valid.site
@@ -127,6 +143,29 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             sortOrder = sortOrderByValue(prefs.defaultSortOrderValue(site))
         )
         _uiState.update { it.copy(searchParams = defaults) }
+    }
+
+    private fun restoreFromCache() {
+        val params = _uiState.value.searchParams.copy(query = _query.value, page = 1).withValidCategory()
+        viewModelScope.launch {
+            val cached = runCatching { repository.search(params, fromCache = true) }
+                .getOrNull()
+                ?.getOrNull()
+                .orEmpty()
+            if (cached.isEmpty()) return@launch
+            val (merged, canLoadMore) = mergeSearchPages(emptyList(), cached, replace = true)
+            _uiState.update {
+                it.copy(
+                    torrents = merged,
+                    hasSearched = true,
+                    isLoading = false,
+                    canLoadMore = canLoadMore,
+                    searchParams = params,
+                    error = null
+                )
+            }
+            search(recordHistory = false)
+        }
     }
 
     fun search(recordHistory: Boolean = true, forceNetwork: Boolean = false) {

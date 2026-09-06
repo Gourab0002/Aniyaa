@@ -8,6 +8,12 @@ import android.content.Intent
 import android.net.Uri
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +46,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -149,12 +154,14 @@ fun TorrentDetailScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        "Details",
+                        displayTorrent.title,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -168,6 +175,15 @@ fun TorrentDetailScreen(
                     }
                 },
                 actions = {
+                    if (magnetLink.isNotEmpty()) {
+                        IconButton(onClick = { openMagnet(context, magnetLink, prefs.preferredTorrentPackage)?.let(::showMessage) }) {
+                            Icon(
+                                Icons.Default.Link,
+                                contentDescription = "Open magnet",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(onClick = { bookmarkViewModel.toggleBookmark(torrent) }) {
                         Icon(
                             imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -358,6 +374,12 @@ fun TorrentDetailScreen(
                         }
                     }
                 }
+                }
+            }
+
+            if (commentsState.isLoading && commentsState.description.isEmpty() && commentsState.fileList.isEmpty()) {
+                item(key = "detail-skeleton") {
+                    DetailLoadingSkeleton()
                 }
             }
 
@@ -741,6 +763,50 @@ private fun FileTreeNode(node: FileNode, onCopyPath: (String) -> Unit, indent: I
 }
 
 @Composable
+private fun DetailLoadingSkeleton(includeTitle: Boolean = true) {
+    val pulse = rememberInfiniteTransition(label = "detail-skeleton")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "detail-skeleton-alpha"
+    )
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f + 0.06f * alpha)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        if (includeTitle) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.fillMaxWidth(0.35f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                    Box(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                    Box(Modifier.fillMaxWidth(0.9f).height(12.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                    Box(Modifier.fillMaxWidth(0.7f).height(12.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                }
+            }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.fillMaxWidth(0.2f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                    repeat(3) {
+                        Box(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(4.dp)).background(color))
+                    }
+                }
+            }
+        } else {
+            repeat(3) {
+                Box(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(4.dp)).background(color))
+            }
+        }
+    }
+}
+
+@Composable
 private fun CommentsHeader(
     commentsState: CommentsUiState,
     torrent: Torrent,
@@ -757,17 +823,7 @@ private fun CommentsHeader(
         Spacer(Modifier.height(16.dp))
         when {
             commentsState.isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp),
-                        strokeWidth = 2.5.dp
-                    )
-                }
+                DetailLoadingSkeleton(includeTitle = false)
             }
             commentsState.error != null -> {
                 Text(

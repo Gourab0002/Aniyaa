@@ -30,6 +30,19 @@ object PubDateFormatter {
         return formatted
     }
 
+    fun formatRelative(raw: String, now: Long = System.currentTimeMillis()): String {
+        if (raw.isBlank()) return ""
+        val parsed = parse(raw) ?: return format(raw)
+        val minutes = (now - parsed.time) / 60_000L
+        return when {
+            minutes < 1 -> "just now"
+            minutes < 60 -> "${minutes}m ago"
+            minutes < 24 * 60 -> "${minutes / 60}h ago"
+            minutes < 7 * 24 * 60 -> "${minutes / (24 * 60)}d ago"
+            else -> format(raw)
+        }
+    }
+
     internal fun parse(raw: String): java.util.Date? {
         for (pattern in inputPatterns) {
             try {

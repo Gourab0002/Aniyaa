@@ -57,6 +57,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun acknowledgeSukebei() {
         prefs.sukebeiAcknowledged = true
+        prefs.sukebeiEnabled = true
+    }
+
+    fun setSukebeiEnabled(enabled: Boolean) {
+        if (enabled && !prefs.sukebeiAcknowledged) return
+        prefs.sukebeiEnabled = enabled
+        if (!enabled) {
+            prefs.currentSite = CatalogSite.NYAA
+        }
     }
 
     fun setDefaultCategory(value: String, site: CatalogSite = prefs.currentSite) {
@@ -134,6 +143,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun exportBackup(): String = withContext(Dispatchers.IO) { backupManager.exportJson() }
+
+    fun clearNetworkCache() {
+        com.nyaa.aniyaa.data.network.AppHttpClient.clearCache()
+        _message.value = "Network cache cleared"
+    }
+
+    fun resetLocalData() {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    app.bookmarkRepository.replaceAll(emptyList())
+                    app.historyRepository.clear()
+                    app.savedSearchRepository.replaceAll(emptyList())
+                    com.nyaa.aniyaa.data.network.AppHttpClient.clearCache()
+                }
+                _message.value = "Local data cleared"
+            } catch (e: Exception) {
+                _message.value = e.message ?: "Could not clear local data"
+            }
+        }
+    }
 
     fun importBackup(json: String) {
         viewModelScope.launch {

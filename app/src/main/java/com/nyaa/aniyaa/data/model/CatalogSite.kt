@@ -28,6 +28,9 @@ enum class CatalogSite(
             SUKEBEI -> SUKEBEI_CATEGORIES
         }
 
+    val primaryCategories: List<Category>
+        get() = categories.filter { it.isPrimary }
+
     val viewOnLabel: String
         get() = when (this) {
             NYAA -> "View on Nyaa"

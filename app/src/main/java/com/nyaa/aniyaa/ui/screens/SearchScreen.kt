@@ -1,6 +1,20 @@
 package com.nyaa.aniyaa.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -42,9 +56,10 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,21 +81,27 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -108,8 +129,11 @@ import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchUiState
 import com.nyaa.aniyaa.ui.viewmodel.SearchViewModel
 import com.nyaa.aniyaa.util.PubDateFormatter
-import com.nyaa.aniyaa.util.copyText
+import com.nyaa.aniyaa.util.formatCount
+import com.nyaa.aniyaa.util.hasNotificationPermission
 import com.nyaa.aniyaa.util.openMagnet
+import com.nyaa.aniyaa.util.parseReleaseTitle
+import com.nyaa.aniyaa.util.prepareSavedSearchAlerts
 import kotlinx.coroutines.launch
 
 private const val LOAD_MORE_BUFFER = 3
@@ -135,12 +159,42 @@ fun SearchScreen(
     val prefs = remember { AppPreferences(context) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var pendingSave by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingSave
+        pendingSave = null
+        if (pending != null) {
+            if (granted) prepareSavedSearchAlerts(context)
+            scope.launch {
+                viewModel.saveCurrentSearch(pending.first, granted && pending.second)
+                snackbarHostState.showSnackbar("Search saved")
+            }
+        }
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
     val interactionSource = remember { MutableInteractionSource() }
     val searchFocused by interactionSource.collectIsFocusedAsState()
     val bookmarkedIds = remember(bookmarks) { bookmarks.map { it.bookmarkKey() }.toSet() }
     var showSukebeiWarning by remember { mutableStateOf(false) }
+    var chromeVisible by remember { mutableStateOf(true) }
+    var previousIndex by remember { mutableIntStateOf(0) }
+    var previousOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                if (index == 0 && offset < 12) {
+                    chromeVisible = true
+                } else if (index > previousIndex || (index == previousIndex && offset > previousOffset + 12)) {
+                    chromeVisible = false
+                } else if (index < previousIndex || (index == previousIndex && offset < previousOffset - 12)) {
+                    chromeVisible = true
+                }
+                previousIndex = index
+                previousOffset = offset
+            }
+    }
 
     LaunchedEffect(uiState.error, uiState.torrents.isNotEmpty()) {
         val error = uiState.error
@@ -164,6 +218,7 @@ fun SearchScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(
@@ -223,38 +278,41 @@ fun SearchScreen(
                             cursorColor = MaterialTheme.colorScheme.primary
                         )
                     )
-                    IconButton(onClick = { showSaveDialog = true }) {
-                        Icon(
-                            Icons.Default.Save,
-                            contentDescription = "Save search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                         IconButton(onClick = { showFilterSheet = true }) {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = "Filter",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            BadgedBox(
+                                badge = {
+                                    if (uiState.searchParams.hasActiveFilters()) {
+                                        Badge()
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.FilterList,
+                                    contentDescription = "Filter",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CatalogSite.entries.forEach { site ->
-                        FilterChip(
-                            selected = uiState.searchParams.site == site,
-                            onClick = {
-                                if (site.nsfw && !prefs.sukebeiAcknowledged) {
-                                    showSukebeiWarning = true
-                                } else {
-                                    viewModel.switchSite(site)
-                                }
-                            },
-                            label = { Text(if (site.nsfw) "${site.displayName} 18+" else site.displayName) },
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                if (prefs.sukebeiEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CatalogSite.entries.forEach { site ->
+                            FilterChip(
+                                selected = uiState.searchParams.site == site,
+                                onClick = {
+                                    if (site.nsfw && !prefs.sukebeiAcknowledged) {
+                                        showSukebeiWarning = true
+                                    } else {
+                                        viewModel.switchSite(site)
+                                    }
+                                },
+                                label = { Text(if (site.nsfw) "${site.displayName} 18+" else site.displayName) },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -289,25 +347,98 @@ fun SearchScreen(
                     }
                 }
             }
-            val siteHistory = history.filter { it.site == uiState.searchParams.site }
-            if (siteHistory.isNotEmpty()) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(siteHistory.take(12), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
-                        FilterChip(
-                            selected = false,
-                            onClick = { viewModel.applyHistory(entry) },
-                            label = {
-                                Text(
-                                    entry.query,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 180.dp)
+            val siteHistory = history.filter { it.site == uiState.searchParams.site && it.query.isNotBlank() }
+            val filterCaption = uiState.searchParams.activeFilterCaption()
+            AnimatedVisibility(
+                visible = chromeVisible,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    val primaryCategories = uiState.searchParams.site.primaryCategories
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(primaryCategories, key = { it.value }) { category ->
+                            FilterChip(
+                                selected = category.groups(uiState.searchParams.category),
+                                onClick = {
+                                    viewModel.updateCategory(category)
+                                    viewModel.search()
+                                },
+                                label = { Text(category.shortLabel) },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = uiState.searchParams.filter == FilterOption.TRUSTED,
+                                onClick = {
+                                    viewModel.updateFilter(
+                                        if (uiState.searchParams.filter == FilterOption.TRUSTED) {
+                                            FilterOption.ALL
+                                        } else {
+                                            FilterOption.TRUSTED
+                                        }
+                                    )
+                                    viewModel.search()
+                                },
+                                label = { Text("Trusted") },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = uiState.searchParams.filter == FilterOption.NO_REMAKES,
+                                onClick = {
+                                    viewModel.updateFilter(
+                                        if (uiState.searchParams.filter == FilterOption.NO_REMAKES) {
+                                            FilterOption.ALL
+                                        } else {
+                                            FilterOption.NO_REMAKES
+                                        }
+                                    )
+                                    viewModel.search()
+                                },
+                                label = { Text("No remakes") },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    }
+                    if (filterCaption.isNotBlank()) {
+                        Text(
+                            text = filterCaption,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                        )
+                    }
+                    if (siteHistory.isNotEmpty()) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(siteHistory.take(12), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { viewModel.applyHistory(entry) },
+                                    label = {
+                                        Text(
+                                            entry.query,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 180.dp)
+                                        )
+                                    }
                                 )
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -324,15 +455,16 @@ fun SearchScreen(
                     val error = openMagnet(context, torrent.resolvedMagnet(), prefs.preferredTorrentPackage)
                     if (error != null) scope.launch { snackbarHostState.showSnackbar(error) }
                 },
-                onCopyMagnet = { torrent ->
-                    val magnet = torrent.resolvedMagnet()
-                    if (magnet.isNotEmpty()) {
-                        copyText(context, "Magnet Link", magnet)
-                        scope.launch { snackbarHostState.showSnackbar("Copied magnet") }
-                    }
-                },
                 onToggleBookmark = { torrent -> bookmarkViewModel.toggleBookmark(torrent) },
-                modifier = Modifier.weight(1f)
+                onSearchQuery = { text ->
+                    viewModel.applyParams(SearchParams(query = text, site = uiState.searchParams.site))
+                },
+                onOpenUser = { username ->
+                    viewModel.applyParams(SearchParams(query = "user:$username", site = uiState.searchParams.site))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             )
         }
     }
@@ -356,6 +488,10 @@ fun SearchScreen(
                 onSortFieldChange = viewModel::updateSortField,
                 onSortOrderChange = viewModel::updateSortOrder,
                 onReset = viewModel::resetFilters,
+                onSaveSearch = {
+                    showFilterSheet = false
+                    showSaveDialog = true
+                },
                 onApply = {
                     scope.launch { sheetState.hide() }
                         .invokeOnCompletion { showFilterSheet = false }
@@ -378,7 +514,7 @@ fun SearchScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        prefs.sukebeiAcknowledged = true
+                        prefs.sukebeiEnabled = true
                         showSukebeiWarning = false
                         viewModel.switchSite(CatalogSite.SUKEBEI)
                     }
@@ -396,9 +532,15 @@ fun SearchScreen(
             onDismiss = { showSaveDialog = false },
             onSave = { name, notify ->
                 showSaveDialog = false
-                scope.launch {
-                    viewModel.saveCurrentSearch(name, notify)
-                    snackbarHostState.showSnackbar("Search saved")
+                if (notify && !hasNotificationPermission(context) && Build.VERSION.SDK_INT >= 33) {
+                    pendingSave = name to true
+                    notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    if (notify) prepareSavedSearchAlerts(context)
+                    scope.launch {
+                        viewModel.saveCurrentSearch(name, notify)
+                        snackbarHostState.showSnackbar("Search saved")
+                    }
                 }
             }
         )
@@ -454,40 +596,34 @@ private fun SearchResultsBody(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onMagnet: (Torrent) -> Unit,
-    onCopyMagnet: (Torrent) -> Unit,
     onToggleBookmark: (Torrent) -> Unit,
+    onSearchQuery: (String) -> Unit,
+    onOpenUser: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     PullToRefreshBox(
         isRefreshing = uiState.isRefreshing,
         onRefresh = onRefresh,
-        modifier = modifier
+        modifier = modifier.fillMaxSize()
     ) {
         when {
             uiState.isLoading && uiState.torrents.isEmpty() -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp),
-                        strokeWidth = 3.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        text = "Loading listings...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                SearchLoadingPlaceholder(bottomPadding = bottomPadding)
+            }
+            !uiState.hasSearched && uiState.torrents.isEmpty() -> {
+                SearchHomeEmpty(
+                    siteName = uiState.searchParams.site.displayName,
+                    bottomPadding = bottomPadding,
+                    onShowLatest = onRetry
+                )
             }
             uiState.error != null && uiState.torrents.isEmpty() && uiState.hasSearched -> {
                 Column(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
+                        .fillMaxSize()
+                        .padding(bottom = bottomPadding)
                         .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -509,9 +645,10 @@ private fun SearchResultsBody(
             uiState.torrents.isEmpty() && uiState.hasSearched -> {
                 Column(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
+                        .fillMaxSize()
+                        .padding(bottom = bottomPadding)
                         .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
@@ -564,14 +701,64 @@ private fun SearchResultsBody(
                         key = { index, torrent -> torrent.listKey(index) },
                         contentType = { _, _ -> "torrent" }
                     ) { _, torrent ->
-                        TorrentCard(
-                            torrent = torrent,
-                            onClick = onTorrentClick,
-                            isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
-                            onMagnet = { onMagnet(torrent) },
-                            onCopyMagnet = { onCopyMagnet(torrent) },
-                            onToggleBookmark = { onToggleBookmark(torrent) }
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                when (value) {
+                                    SwipeToDismissBoxValue.StartToEnd -> {
+                                        onMagnet(torrent)
+                                        false
+                                    }
+                                    SwipeToDismissBoxValue.EndToStart -> {
+                                        onToggleBookmark(torrent)
+                                        false
+                                    }
+                                    else -> false
+                                }
+                            }
                         )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val color = when (dismissState.dismissDirection) {
+                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
+                                    else -> MaterialTheme.colorScheme.surface
+                                }
+                                val alignment = when (dismissState.dismissDirection) {
+                                    SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                                    else -> Alignment.CenterEnd
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 8.dp),
+                                    contentAlignment = alignment
+                                ) {
+                                    Surface(shape = CircleShape, color = color) {
+                                        Icon(
+                                            imageVector = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                                                Icons.Default.Link
+                                            } else {
+                                                Icons.Default.Bookmark
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(12.dp),
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            TorrentCard(
+                                torrent = torrent,
+                                onClick = onTorrentClick,
+                                isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
+                                showSiteBadge = false,
+                                onToggleBookmark = { onToggleBookmark(torrent) },
+                                onSearchQuery = onSearchQuery,
+                                onOpenUser = onOpenUser
+                            )
+                        }
                     }
                     if (uiState.isLoadingMore) {
                         item(key = "loading-more", contentType = "loading") {
@@ -604,6 +791,7 @@ fun FilterBottomSheetContent(
     onSortFieldChange: (SortField) -> Unit,
     onSortOrderChange: (SortOrder) -> Unit,
     onReset: () -> Unit,
+    onSaveSearch: () -> Unit = {},
     onApply: () -> Unit
 ) {
     var tempCategory by remember(key1 = searchParams) { mutableStateOf(searchParams.category) }
@@ -631,35 +819,42 @@ fun FilterBottomSheetContent(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        Box {
-            OutlinedTextField(
-                value = tempCategory.displayName,
-                onValueChange = {},
-                readOnly = true,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = false,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            )
-            Box(modifier = Modifier.matchParentSize().clickable { categoryExpanded = true })
-            DropdownMenu(
-                expanded = categoryExpanded,
-                onDismissRequest = { categoryExpanded = false },
-                modifier = Modifier.fillMaxWidth(0.9f)
-            ) {
-                categories.forEach { category ->
-                    DropdownMenuItem(
-                        text = { Text(category.displayName) },
-                        onClick = {
-                            tempCategory = category
-                            categoryExpanded = false
-                        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            categories.filter { it.isPrimary }.forEach { category ->
+                FilterChip(
+                    selected = category.groups(tempCategory),
+                    onClick = { tempCategory = category },
+                    label = { Text(category.shortLabel) },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
+                )
+            }
+            val moreCategories = categories.filter { !it.isPrimary }
+            if (moreCategories.isNotEmpty()) {
+                Box {
+                    FilterChip(
+                        selected = moreCategories.any { it.value == tempCategory.value },
+                        onClick = { categoryExpanded = true },
+                        label = { Text("More") },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    DropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false }
+                    ) {
+                        moreCategories.forEach { category ->
+                            DropdownMenuItem(
+                                text = { Text(category.displayName) },
+                                onClick = {
+                                    tempCategory = category
+                                    categoryExpanded = false
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -739,7 +934,9 @@ fun FilterBottomSheetContent(
                 )
             }
         }
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
+        TextButton(onClick = onSaveSearch) { Text("Save this search") }
+        Spacer(Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(
                 onClick = {
@@ -767,15 +964,147 @@ fun FilterBottomSheetContent(
     }
 }
 
+@Composable
+private fun SearchHomeEmpty(
+    siteName: String,
+    bottomPadding: Dp,
+    onShowLatest: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = bottomPadding)
+            .padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            Icons.Default.Search,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.outlineVariant
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Search $siteName",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Type a name, or show the latest listings.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onShowLatest, shape = RoundedCornerShape(12.dp)) {
+            Text("Show latest")
+        }
+    }
+}
+
+@Composable
+private fun SearchLoadingPlaceholder(bottomPadding: Dp) {
+    val pulse = rememberInfiniteTransition(label = "search-skeleton")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "search-skeleton-alpha"
+    )
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            bottom = 8.dp + bottomPadding
+        ),
+        userScrollEnabled = false
+    ) {
+        items(8) {
+            SearchSkeletonCard(alpha = alpha)
+        }
+    }
+}
+
+@Composable
+private fun SearchSkeletonCard(alpha: Float) {
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f + 0.06f * alpha)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(color)
+            )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.64f)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(color)
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(color)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(88.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(color)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                repeat(4) {
+                    Box(
+                        modifier = Modifier
+                            .width(48.dp)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(color)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TorrentCard(
     torrent: Torrent,
     onClick: (Torrent) -> Unit,
     isBookmarked: Boolean = false,
+    showSiteBadge: Boolean = false,
     onMagnet: (() -> Unit)? = null,
     onCopyMagnet: (() -> Unit)? = null,
-    onToggleBookmark: (() -> Unit)? = null
+    onToggleBookmark: (() -> Unit)? = null,
+    onSearchQuery: ((String) -> Unit)? = null,
+    onOpenUser: ((String) -> Unit)? = null
 ) {
     Card(
         onClick = { onClick(torrent) },
@@ -794,16 +1123,73 @@ fun TorrentCard(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurface
             )
+            val parsed = remember(torrent.title) { parseReleaseTitle(torrent.title) }
+            val group = parsed.group
+            val show = parsed.show
+            if (onSearchQuery != null && (group != null || show != null) ||
+                (onOpenUser != null && torrent.submitter.isNotBlank())
+            ) {
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (onSearchQuery != null && group != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.clickable { onSearchQuery(group) }
+                        ) {
+                            Text(
+                                text = group,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    if (onSearchQuery != null && show != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.clickable { onSearchQuery(show) }
+                        ) {
+                            Text(
+                                text = show,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    if (onOpenUser != null && torrent.submitter.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            modifier = Modifier.clickable { onOpenUser(torrent.submitter) }
+                        ) {
+                            Text(
+                                text = torrent.submitter,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                    Text(
-                        text = torrent.site.displayName,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        fontWeight = FontWeight.Medium
-                    )
+                if (showSiteBadge) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                        Text(
+                            text = torrent.site.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
                 if (torrent.category.isNotEmpty()) {
                     Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -856,18 +1242,18 @@ fun TorrentCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     Icon(Icons.Default.ArrowUpward, contentDescription = "Seeders", modifier = Modifier.size(13.dp), tint = NyaaSeeder)
-                    Text(text = torrent.seeders.toString(), style = MaterialTheme.typography.labelMedium, color = NyaaSeeder, fontWeight = FontWeight.Bold)
+                    Text(text = formatCount(torrent.seeders), style = MaterialTheme.typography.labelMedium, color = NyaaSeeder, fontWeight = FontWeight.Bold)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     Icon(Icons.Default.ArrowDownward, contentDescription = "Leechers", modifier = Modifier.size(13.dp), tint = NyaaLeecher)
-                    Text(text = torrent.leechers.toString(), style = MaterialTheme.typography.labelMedium, color = NyaaLeecher, fontWeight = FontWeight.Bold)
+                    Text(text = formatCount(torrent.leechers), style = MaterialTheme.typography.labelMedium, color = NyaaLeecher, fontWeight = FontWeight.Bold)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     Icon(Icons.Default.Download, contentDescription = "Downloads", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(text = torrent.downloads.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = formatCount(torrent.downloads), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    text = remember(torrent.pubDate) { PubDateFormatter.format(torrent.pubDate) },
+                    text = remember(torrent.pubDate) { PubDateFormatter.formatRelative(torrent.pubDate) },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

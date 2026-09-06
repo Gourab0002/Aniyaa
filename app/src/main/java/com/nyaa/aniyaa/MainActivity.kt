@@ -21,6 +21,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -51,7 +52,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,9 +74,14 @@ import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.DarkMode
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.data.model.categoryByValue
+import com.nyaa.aniyaa.data.model.filterByValue
+import com.nyaa.aniyaa.data.model.sortFieldByValue
+import com.nyaa.aniyaa.data.model.sortOrderByValue
 import com.nyaa.aniyaa.data.network.AppHttpClient
 import com.nyaa.aniyaa.ui.lock.LockScreen
 import com.nyaa.aniyaa.ui.screens.BookmarksScreen
+import com.nyaa.aniyaa.ui.screens.OnboardingScreen
 import com.nyaa.aniyaa.ui.screens.SearchHistoryScreen
 import com.nyaa.aniyaa.ui.screens.SearchScreen
 import com.nyaa.aniyaa.ui.screens.SettingsScreen
@@ -86,6 +91,8 @@ import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
 import com.nyaa.aniyaa.ui.viewmodel.SearchViewModel
 import com.nyaa.aniyaa.util.HighRefreshRate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -119,6 +126,19 @@ class MainActivity : AppCompatActivity() {
 
             AniyaaTheme(darkMode = darkMode, themeIndex = themeIndex) {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    var showOnboarding by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        if (prefs.onboardingComplete) return@LaunchedEffect
+                        val hasData = withContext(Dispatchers.IO) {
+                            app.bookmarkRepository.getAll().isNotEmpty() ||
+                                app.historyRepository.getAll().isNotEmpty()
+                        }
+                        if (hasData) {
+                            prefs.onboardingComplete = true
+                        } else {
+                            showOnboarding = true
+                        }
+                    }
                     AniyaaApp(
                         currentThemeIndex = themeIndex,
                         darkMode = darkMode,
@@ -134,6 +154,16 @@ class MainActivity : AppCompatActivity() {
                         },
                         onPrivacyFlagsChanged = { applyPrivacyFlags() }
                     )
+                    if (showOnboarding && !(locked && prefs.lockEnabled && prefs.hasPin)) {
+                        OnboardingScreen(
+                            preferredTorrentPackage = prefs.preferredTorrentPackage,
+                            onPreferredTorrentPackage = { prefs.preferredTorrentPackage = it },
+                            onFinished = {
+                                prefs.onboardingComplete = true
+                                showOnboarding = false
+                            }
+                        )
+                    }
                     if (locked && prefs.lockEnabled && prefs.hasPin) {
                         LockScreen(
                             error = pinError,
@@ -281,11 +311,11 @@ fun AniyaaApp(
             else -> null
         }?.substringBefore("#")
         val savedId = if (host == "saved") data.lastPathSegment?.toLongOrNull() else null
+        val site = linkedSite ?: CatalogSite.NYAA
+        if (site.nsfw) {
+            AniyaaApplication.instance.prefs.sukebeiEnabled = true
+        }
         if (viewId != null) {
-            val site = linkedSite ?: CatalogSite.NYAA
-            if (site.nsfw) {
-                AniyaaApplication.instance.prefs.sukebeiAcknowledged = true
-            }
             searchViewModel.switchSite(site)
             selectedTorrent = searchViewModel.torrentByNavId(viewId, site)
                 ?: bookmarkViewModel.torrentByNavId(viewId, site)
@@ -296,6 +326,40 @@ fun AniyaaApp(
             val saved = searchHistoryViewModel.savedSearchById(savedId)
             if (saved != null) {
                 searchViewModel.applySavedSearch(saved)
+                navController.navigate("search") {
+                    popUpTo("search") { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+        } else {
+            val user = if (segments.firstOrNull() == "user") segments.getOrNull(1).orEmpty() else ""
+            val query = data.getQueryParameter("q").orEmpty()
+            val category = data.getQueryParameter("c")
+            val filter = data.getQueryParameter("f")?.toIntOrNull()
+            val sort = data.getQueryParameter("s")
+            val order = data.getQueryParameter("o")
+            if (user.isNotBlank() || query.isNotBlank() || !category.isNullOrBlank()) {
+                val combined = if (user.isNotBlank()) {
+                    "user:$user ${query}".trim()
+                } else {
+                    query
+                }
+                searchViewModel.applyParams(
+                    SearchParams(
+                        query = combined,
+                        site = site,
+                        category = categoryByValue(category ?: "0_0", site),
+                        filter = filterByValue(filter ?: 0),
+                        sortField = sortFieldByValue(sort ?: "id"),
+                        sortOrder = sortOrderByValue(order ?: "desc")
+                    )
+                )
+                navController.navigate("search") {
+                    popUpTo("search") { inclusive = true }
+                    launchSingleTop = true
+                }
+            } else {
+                searchViewModel.switchSite(site)
                 navController.navigate("search") {
                     popUpTo("search") { inclusive = true }
                     launchSingleTop = true
@@ -359,11 +423,17 @@ fun AniyaaApp(
             }
         }
     ) { innerPadding ->
-        Row(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = if (showBottomBar) innerPadding.calculateBottomPadding() else 0.dp)
+        ) {
             NavHost(
                 navController = navController,
                 startDestination = "search",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize(),
                 enterTransition = {
                     fadeIn(navFadeSpring) + slideInHorizontally(navSlideSpring) { it / 8 }
                 },
@@ -378,7 +448,6 @@ fun AniyaaApp(
                 composable("search") {
                     SearchScreen(
                         onTorrentClick = openTorrent,
-                        bottomPadding = innerPadding.calculateBottomPadding(),
                         searchViewModel = searchViewModel,
                         searchHistoryViewModel = searchHistoryViewModel,
                         bookmarkViewModel = bookmarkViewModel
@@ -400,15 +469,13 @@ fun AniyaaApp(
                                 launchSingleTop = true
                             }
                         },
-                        searchHistoryViewModel = searchHistoryViewModel,
-                        bottomPadding = innerPadding.calculateBottomPadding()
+                        searchHistoryViewModel = searchHistoryViewModel
                     )
                 }
                 composable("bookmarks") {
                     BookmarksScreen(
                         onTorrentClick = openTorrent,
-                        bookmarkViewModel = bookmarkViewModel,
-                        bottomPadding = innerPadding.calculateBottomPadding()
+                        bookmarkViewModel = bookmarkViewModel
                     )
                 }
                 composable("settings") {
@@ -417,8 +484,7 @@ fun AniyaaApp(
                         darkMode = darkMode,
                         onThemeSelected = onThemeSelected,
                         onDarkModeSelected = onDarkModeSelected,
-                        onPrivacyFlagsChanged = onPrivacyFlagsChanged,
-                        bottomPadding = innerPadding.calculateBottomPadding()
+                        onPrivacyFlagsChanged = onPrivacyFlagsChanged
                     )
                 }
                 composable(
@@ -443,14 +509,19 @@ fun AniyaaApp(
                     )
                 }
             }
-            if (expanded && selectedTorrent != null && showBottomBar) {
-                Box(modifier = Modifier.weight(1.15f).fillMaxWidth()) {
-                    TorrentDetailScreen(
-                        torrent = selectedTorrent!!,
-                        onNavigateBack = { selectedTorrent = null },
-                        onOpenUser = ::openUser,
-                        bookmarkViewModel = bookmarkViewModel
-                    )
+            if (expanded && showBottomBar) {
+                Box(modifier = Modifier.weight(1.15f).fillMaxHeight()) {
+                    val torrent = selectedTorrent
+                    if (torrent != null) {
+                        TorrentDetailScreen(
+                            torrent = torrent,
+                            onNavigateBack = { selectedTorrent = null },
+                            onOpenUser = ::openUser,
+                            bookmarkViewModel = bookmarkViewModel
+                        )
+                    } else {
+                        EmptyDetailPane()
+                    }
                 }
             }
         }
@@ -504,6 +575,20 @@ private fun TorrentDetailGate(
             CircularProgressIndicator()
         }
         else -> MissingTorrentScreen(onNavigateBack = onNavigateBack)
+    }
+}
+
+@Composable
+private fun EmptyDetailPane() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Select a listing",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

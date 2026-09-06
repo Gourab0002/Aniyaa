@@ -84,7 +84,22 @@ enum class BookmarkSort(val displayName: String) {
     SEEDERS("Seeders")
 }
 
-data class Category(val value: String, val displayName: String)
+data class Category(val value: String, val displayName: String) {
+    val isPrimary: Boolean
+        get() = value == "0_0" || value.endsWith("_0")
+
+    val groupPrefix: String
+        get() = value.substringBefore("_", value)
+
+    fun groups(selected: Category): Boolean {
+        if (value == "0_0") return selected.value == "0_0"
+        if (!isPrimary) return selected.value == value
+        return selected.groupPrefix == groupPrefix
+    }
+
+    val shortLabel: String
+        get() = displayName.substringBefore(" - ").removePrefix("All ").ifBlank { displayName }
+}
 
 fun categoryByValue(value: String, site: CatalogSite = CatalogSite.NYAA): Category =
     site.categories.find { it.value == value } ?: site.categories.first()
@@ -114,6 +129,19 @@ data class SearchParams(
         val valid = categoryByValue(category.value, site)
         return if (valid == category) this else copy(category = valid)
     }
+
+    fun hasActiveFilters(): Boolean =
+        category.value != "0_0" ||
+            filter != FilterOption.ALL ||
+            sortField != SortField.DATE ||
+            sortOrder != SortOrder.DESC
+
+    fun activeFilterCaption(): String = buildList {
+        if (!category.isPrimary) add(category.displayName.substringAfter(" - ").ifBlank { category.displayName })
+        if (filter != FilterOption.ALL) add(filter.displayName)
+        if (sortField != SortField.DATE) add(sortField.displayName)
+        if (sortOrder != SortOrder.DESC) add(sortOrder.displayName)
+    }.joinToString(" · ")
 }
 
 @Immutable

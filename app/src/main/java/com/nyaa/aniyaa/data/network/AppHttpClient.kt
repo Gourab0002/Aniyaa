@@ -51,6 +51,10 @@ object AppHttpClient {
         builder.build()
     }
 
+    fun clearCache() {
+        runCatching { instance.cache?.evictAll() }
+    }
+
     fun newRequest(url: String): Request =
         Request.Builder()
             .url(url)

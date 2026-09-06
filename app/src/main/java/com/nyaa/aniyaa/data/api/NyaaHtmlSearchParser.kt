@@ -66,7 +66,9 @@ object NyaaHtmlSearchParser {
                     comments = comments,
                     trusted = classes.contains("success"),
                     remake = classes.contains("danger"),
-                    magnetLink = magnetHref
+                    magnetLink = magnetHref,
+                    submitter = row.selectFirst("a[href*=/user/]")?.text()?.trim().orEmpty()
+                        .let { if (it.equals("Anonymous", ignoreCase = true)) "" else it }
                 )
             )
         }

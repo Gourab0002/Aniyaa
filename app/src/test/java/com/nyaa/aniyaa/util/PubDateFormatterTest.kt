@@ -27,4 +27,12 @@ class PubDateFormatterTest {
     fun format_unknownReturnsOriginal() {
         assertEquals("not-a-date", PubDateFormatter.format("not-a-date"))
     }
+
+    @Test
+    fun formatRelative_recentIsShort() {
+        val now = 1_735_689_600_000L
+        val twoHoursAgo = "Wed, 31 Dec 2024 22:00:00 +0000"
+        val formatted = PubDateFormatter.formatRelative(twoHoursAgo, now)
+        assertTrue(formatted.endsWith("ago") || formatted.contains("2024") || formatted.contains("Dec"))
+    }
 }

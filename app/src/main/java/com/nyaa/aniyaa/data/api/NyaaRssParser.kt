@@ -46,6 +46,7 @@ object NyaaRssParser {
         var comments = 0
         var trusted = false
         var remake = false
+        var submitter = ""
 
         fun resetItem() {
             id = ""
@@ -62,6 +63,7 @@ object NyaaRssParser {
             comments = 0
             trusted = false
             remake = false
+            submitter = ""
             textBuffer.setLength(0)
         }
 
@@ -83,6 +85,8 @@ object NyaaRssParser {
                 tag == "comments" && namespace.contains("nyaa") -> comments = text.toIntOrNull() ?: 0
                 tag == "trusted" && namespace.contains("nyaa") -> trusted = text.equals("Yes", ignoreCase = true)
                 tag == "remake" && namespace.contains("nyaa") -> remake = text.equals("Yes", ignoreCase = true)
+                (tag == "submitter" && namespace.contains("nyaa")) ||
+                    (tag == "creator" && namespace.contains("dc")) -> if (submitter.isEmpty()) submitter = text
             }
         }
 
@@ -126,7 +130,8 @@ object NyaaRssParser {
                                     comments = comments,
                                     trusted = trusted,
                                     remake = remake,
-                                    magnetLink = ""
+                                    magnetLink = "",
+                                    submitter = submitter
                                 )
                             )
                             inItem = false

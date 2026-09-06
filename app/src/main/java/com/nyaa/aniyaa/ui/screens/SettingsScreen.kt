@@ -105,6 +105,7 @@ fun SettingsScreen(
     var nyaaBaseUrl by remember { mutableStateOf(prefs.baseUrl(CatalogSite.NYAA)) }
     var sukebeiBaseUrl by remember { mutableStateOf(prefs.baseUrl(CatalogSite.SUKEBEI)) }
     var showSukebeiWarning by remember { mutableStateOf(false) }
+    var sukebeiEnabled by remember { mutableStateOf(prefs.sukebeiEnabled) }
     var lockEnabled by remember { mutableStateOf(prefs.lockEnabled) }
     var hideScreenshots by remember { mutableStateOf(prefs.hideScreenshots) }
     var hideFromRecents by remember { mutableStateOf(prefs.hideFromRecents) }
@@ -114,6 +115,7 @@ fun SettingsScreen(
     var torrentPackage by remember { mutableStateOf(prefs.preferredTorrentPackage) }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinValue by remember { mutableStateOf("") }
+    var showResetDialog by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
@@ -162,6 +164,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -221,25 +224,41 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(28.dp))
+            SectionLabel("Catalog")
+            Text("Nyaa is the default. Sukebei is optional adult content.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            SettingsSwitchRow("Enable Sukebei (18+)", "Show the Sukebei catalog on Search", sukebeiEnabled) { enabled ->
+                if (enabled && !prefs.sukebeiAcknowledged) {
+                    showSukebeiWarning = true
+                } else {
+                    sukebeiEnabled = enabled
+                    settingsViewModel.setSukebeiEnabled(enabled)
+                    if (!enabled) {
+                        currentSite = CatalogSite.NYAA
+                        defaultCategory = prefs.defaultCategoryValue(CatalogSite.NYAA)
+                        defaultSort = prefs.defaultSortFieldValue(CatalogSite.NYAA)
+                        defaultOrder = prefs.defaultSortOrderValue(CatalogSite.NYAA)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
             SectionLabel("Search defaults")
-            Text("Switch catalogs on the Search tab. These defaults apply when you reset filters for ${currentSite.displayName}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Text("These defaults apply when you reset filters for ${currentSite.displayName}.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(8.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CatalogSite.entries.forEach { site ->
-                    FilterChip(
-                        selected = currentSite == site,
-                        onClick = {
-                            if (site.nsfw && !prefs.sukebeiAcknowledged) {
-                                showSukebeiWarning = true
-                            } else {
+            if (sukebeiEnabled) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CatalogSite.entries.forEach { site ->
+                        FilterChip(
+                            selected = currentSite == site,
+                            onClick = {
                                 currentSite = site
                                 defaultCategory = prefs.defaultCategoryValue(site)
                                 defaultSort = prefs.defaultSortFieldValue(site)
                                 defaultOrder = prefs.defaultSortOrderValue(site)
-                            }
-                        },
-                        label = { Text(if (site.nsfw) "${site.displayName} 18+" else site.displayName) }
-                    )
+                            },
+                            label = { Text(if (site.nsfw) "${site.displayName} 18+" else site.displayName) }
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -302,21 +321,23 @@ fun SettingsScreen(
                     settingsViewModel.setBaseUrl(CatalogSite.NYAA, CatalogSite.NYAA.defaultBase)
                 }) { Text("Official") }
             }
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = sukebeiBaseUrl,
-                onValueChange = { sukebeiBaseUrl = it },
-                label = { Text("Sukebei URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, sukebeiBaseUrl) }) { Text("Save") }
-                OutlinedButton(onClick = {
-                    sukebeiBaseUrl = CatalogSite.SUKEBEI.defaultBase
-                    settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, CatalogSite.SUKEBEI.defaultBase)
-                }) { Text("Official") }
+            if (sukebeiEnabled) {
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = sukebeiBaseUrl,
+                    onValueChange = { sukebeiBaseUrl = it },
+                    label = { Text("Sukebei URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, sukebeiBaseUrl) }) { Text("Save") }
+                    OutlinedButton(onClick = {
+                        sukebeiBaseUrl = CatalogSite.SUKEBEI.defaultBase
+                        settingsViewModel.setBaseUrl(CatalogSite.SUKEBEI, CatalogSite.SUKEBEI.defaultBase)
+                    }) { Text("Official") }
+                }
             }
 
             Spacer(Modifier.height(28.dp))
@@ -377,6 +398,25 @@ fun SettingsScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { exportLauncher.launch("aniyaa-backup.json") }) { Text("Export") }
                 OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) { Text("Import") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { settingsViewModel.clearNetworkCache() }) { Text("Clear cache") }
+                OutlinedButton(onClick = { showResetDialog = true }) { Text("Reset local data") }
+            }
+            if (showResetDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetDialog = false },
+                    title = { Text("Reset this device?") },
+                    text = { Text("This removes bookmarks, search history, and saved searches on this phone. A backup is not created.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            settingsViewModel.resetLocalData()
+                            showResetDialog = false
+                        }) { Text("Reset") }
+                    },
+                    dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Cancel") } }
+                )
             }
 
             Spacer(Modifier.height(28.dp))
@@ -448,6 +488,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         settingsViewModel.acknowledgeSukebei()
+                        sukebeiEnabled = true
                         currentSite = CatalogSite.SUKEBEI
                         defaultCategory = prefs.defaultCategoryValue(CatalogSite.SUKEBEI)
                         defaultSort = prefs.defaultSortFieldValue(CatalogSite.SUKEBEI)

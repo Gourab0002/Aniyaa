@@ -65,6 +65,8 @@ class BackupManager(
                 put("darkMode", prefs.darkMode.value)
                 put("currentSite", prefs.currentSite.id)
                 put("sukebeiAcknowledged", prefs.sukebeiAcknowledged)
+                put("sukebeiEnabled", prefs.sukebeiEnabled)
+                put("onboardingComplete", prefs.onboardingComplete)
                 put("nyaaBaseUrl", prefs.baseUrl(CatalogSite.NYAA))
                 put("sukebeiBaseUrl", prefs.baseUrl(CatalogSite.SUKEBEI))
                 put("preferredTorrentPackage", prefs.preferredTorrentPackage)
@@ -127,10 +129,16 @@ class BackupManager(
             if (settings.has("darkMode")) {
                 prefs.darkMode = DarkMode.entries.find { it.value == settings.optString("darkMode") } ?: DarkMode.SYSTEM
             }
-            if (settings.has("currentSite")) prefs.currentSite = CatalogSite.fromId(settings.optString("currentSite"))
             if (settings.has("sukebeiAcknowledged")) {
                 prefs.sukebeiAcknowledged = settings.optBoolean("sukebeiAcknowledged")
             }
+            if (settings.has("sukebeiEnabled")) {
+                prefs.sukebeiEnabled = settings.optBoolean("sukebeiEnabled")
+            }
+            if (settings.has("onboardingComplete")) {
+                prefs.onboardingComplete = settings.optBoolean("onboardingComplete")
+            }
+            if (settings.has("currentSite")) prefs.currentSite = CatalogSite.fromId(settings.optString("currentSite"))
             if (settings.has("nyaaBaseUrl")) prefs.setBaseUrl(CatalogSite.NYAA, settings.optString("nyaaBaseUrl"))
             if (settings.has("sukebeiBaseUrl")) prefs.setBaseUrl(CatalogSite.SUKEBEI, settings.optString("sukebeiBaseUrl"))
             if (settings.has("baseUrl") && !settings.has("sukebeiBaseUrl") && !settings.has("nyaaBaseUrl")) {

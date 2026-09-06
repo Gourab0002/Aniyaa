@@ -62,7 +62,6 @@ import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
-import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.openMagnet
 import kotlinx.coroutines.launch
 
@@ -95,6 +94,7 @@ fun BookmarksScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
@@ -270,16 +270,10 @@ fun BookmarksScreen(
                                     torrent = torrent,
                                     onClick = onTorrentClick,
                                     isBookmarked = true,
+                                    showSiteBadge = siteFilter == null,
                                     onMagnet = {
                                         val error = openMagnet(context, torrent.resolvedMagnet(), prefs.preferredTorrentPackage)
                                         if (error != null) scope.launch { snackbarHostState.showSnackbar(error) }
-                                    },
-                                    onCopyMagnet = {
-                                        val magnet = torrent.resolvedMagnet()
-                                        if (magnet.isNotEmpty()) {
-                                            copyText(context, "Magnet Link", magnet)
-                                            scope.launch { snackbarHostState.showSnackbar("Copied magnet") }
-                                        }
                                     },
                                     onToggleBookmark = {
                                         bookmarkViewModel.removeBookmark(torrent)

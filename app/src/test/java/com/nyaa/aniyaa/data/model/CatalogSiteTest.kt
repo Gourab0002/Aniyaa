@@ -30,6 +30,20 @@ class CatalogSiteTest {
     }
 
     @Test
+    fun primaryCategories_areTopLevelOnly() {
+        assertEquals(
+            listOf("0_0", "1_0", "2_0", "3_0", "4_0", "5_0", "6_0"),
+            CatalogSite.NYAA.primaryCategories.map { it.value }
+        )
+        assertEquals(
+            listOf("0_0", "1_0", "2_0"),
+            CatalogSite.SUKEBEI.primaryCategories.map { it.value }
+        )
+        assertTrue(Category("1_0", "Anime").groups(Category("1_2", "Anime - English")))
+        assertFalse(Category("1_0", "Anime").groups(Category("2_0", "Audio")))
+    }
+
+    @Test
     fun bookmarkKey_includesSite() {
         val nyaa = Torrent(
             id = "12", title = "Title", link = "https://nyaa.si/download/12.torrent",
