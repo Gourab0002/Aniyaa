@@ -7,12 +7,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -80,22 +80,23 @@ fun DescriptionCard(
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
                 text = "Description",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 6.dp)
+                modifier = Modifier.padding(bottom = 10.dp)
             )
             visible.forEach { block ->
                 when (block) {
                     is DescriptionBlock.Markdown -> MarkdownContent(
                         markdown = block.text,
                         onCatalogLink = onCatalogLink,
-                        compact = true,
+                        compact = false,
                         renderInlineImages = false,
-                        modifier = Modifier.padding(bottom = 6.dp)
+                        preserveLineBreaks = true,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
                     is DescriptionBlock.Gallery -> ImageGallery(
                         images = block.images,
@@ -131,7 +132,6 @@ fun DescriptionCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ImageGallery(
     images: List<DescriptionImage>,
@@ -140,15 +140,14 @@ private fun ImageGallery(
     var hidden by remember(images) { mutableStateOf(emptySet<String>()) }
     val visible = images.filter { it.url !in hidden && isSafeHttpUrl(it.url) }
     if (visible.isEmpty()) return
-    FlowRow(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         visible.forEach { image ->
-            DescriptionImageThumb(
+            DescriptionImageFrame(
                 image = image,
                 onClick = { onOpen(image) },
                 onGone = { hidden = hidden + image.url }
@@ -158,25 +157,27 @@ private fun ImageGallery(
 }
 
 @Composable
-private fun DescriptionImageThumb(
+private fun DescriptionImageFrame(
     image: DescriptionImage,
     onClick: () -> Unit,
     onGone: () -> Unit
 ) {
+    var ready by remember(image.url) { mutableStateOf(false) }
     AsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
             .data(image.url)
-            .size(256)
             .crossfade(true)
             .build(),
         contentDescription = image.alt.ifBlank { "Description image" },
-        contentScale = ContentScale.Crop,
+        contentScale = ContentScale.Fit,
+        onSuccess = { ready = true },
         onError = { onGone() },
         modifier = Modifier
-            .size(72.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .fillMaxWidth()
+            .then(if (ready) Modifier.heightIn(max = 280.dp) else Modifier.height(0.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-            .clickable(onClick = onClick)
+            .clickable(enabled = ready, onClick = onClick)
     )
 }
 

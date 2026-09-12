@@ -58,11 +58,18 @@ object DescriptionFormatter {
     }
 
     internal fun compactMarkdown(input: String): String {
-        var text = EMPTY_IMAGE.replace(input, "")
+        var text = WRAPPED_IMAGE.replace(input) { match ->
+            "![${match.groupValues[1]}](${match.groupValues[2]})"
+        }
+        text = EMPTY_IMAGE.replace(text, "")
         text = MARKDOWN_LINK_HREF.replace(text) { match ->
             val label = match.groupValues[1]
             val url = match.groupValues[2].trim()
-            if (isSafeHttpUrl(url)) match.value else label
+            when {
+                isImageUrl(url) && isSafeHttpUrl(url) -> "![${label.trim()}]($url)"
+                isSafeHttpUrl(url) && label.isNotBlank() -> match.value
+                else -> label
+            }
         }
         return normalizeWhitespace(text)
     }
@@ -73,9 +80,11 @@ object DescriptionFormatter {
         val buffer = StringBuilder()
 
         fun flushMarkdown() {
-            val text = buffer.toString().trim()
+            val text = compactMarkdown(buffer.toString()).trim()
             buffer.setLength(0)
-            if (text.isNotEmpty()) blocks += DescriptionBlock.Markdown(text)
+            if (text.isNotEmpty() && !isImageArtifact(text)) {
+                blocks += DescriptionBlock.Markdown(text)
+            }
         }
 
         var index = 0
@@ -106,7 +115,7 @@ object DescriptionFormatter {
                 imagesIn(line).isNotEmpty() -> {
                     flushMarkdown()
                     val leftover = stripImages(line)
-                    if (leftover.isNotBlank()) {
+                    if (leftover.isNotBlank() && !isImageArtifact(leftover)) {
                         blocks += DescriptionBlock.Markdown(leftover)
                     }
                     val images = ArrayList<DescriptionImage>()
@@ -204,7 +213,8 @@ object DescriptionFormatter {
     }
 
     internal fun stripImages(line: String): String {
-        var text = MARKDOWN_IMAGE_ANY.replace(line, " ")
+        var text = WRAPPED_IMAGE.replace(line, " ")
+        text = MARKDOWN_IMAGE_ANY.replace(text, " ")
         text = MARKDOWN_LINK_ANY.replace(text) { match ->
             val url = match.groupValues[2].trim()
             if (isImageUrl(url)) " " else match.value
@@ -212,7 +222,15 @@ object DescriptionFormatter {
         text = BARE_IMAGE_ANY.replace(text) { match ->
             if (isImageUrl(match.value.trim().trimEnd(')', ',', '.', ';'))) " " else match.value
         }
+        text = EMPTY_IMAGE.replace(text, " ")
         return text.replace(Regex("\\s+"), " ").trim()
+    }
+
+    internal fun isImageArtifact(text: String): Boolean {
+        val stripped = EMPTY_IMAGE.replace(text, "")
+            .replace(Regex("""[!\[\]()]+"""), "")
+            .trim()
+        return stripped.isEmpty()
     }
 
     internal fun isImageUrl(url: String): Boolean {
@@ -269,9 +287,14 @@ object DescriptionFormatter {
         """\[/?(?:b|i|u|s|img|url|quote|code|list|center|left|right|color|size|font|spoiler|hr|li)(?:=[^\]]*)?]""",
         RegexOption.IGNORE_CASE
     )
-    private val EMPTY_IMAGE = Regex("""!\[(.*?)]\(\s*\)""")
+    private val WRAPPED_IMAGE = Regex(
+        """\[!\[(.*?)]\(\s*(https?://[^)\s]+)(?:\s+"[^"]*")?\s*\)]\(([^)]*)\)"""
+    )
+    private val EMPTY_IMAGE = Regex("""!\[[^\]]*]\(\s*\)|!\(\s*\)""")
     private val MARKDOWN_LINK_HREF = Regex("""(?<!!)\[((?:\\.|[^\]\\])*)]\(([^)]*)\)""")
-    private val MARKDOWN_IMAGE_ANY = Regex("""!\[(.*?)]\((https?://[^)\s]+)\)""")
+    private val MARKDOWN_IMAGE_ANY = Regex(
+        """!\[(.*?)]\(\s*(https?://[^)\s]+)(?:\s+"[^"]*")?\s*\)"""
+    )
     private val MARKDOWN_LINK_ANY = Regex("""(?<!!)\[((?:\\.|[^\]\\])*)]\((https?://[^)\s]+)\)""")
     private val BARE_IMAGE_ANY = Regex(
         """https?://[^\s)<>"']+""",

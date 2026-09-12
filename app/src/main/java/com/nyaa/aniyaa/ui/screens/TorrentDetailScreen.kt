@@ -117,6 +117,7 @@ import com.nyaa.aniyaa.util.torrentShareText
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.MarkwonConfiguration
+import io.noties.markwon.SoftBreakAddsNewLinePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.image.ImagesPlugin
@@ -676,7 +677,8 @@ internal fun MarkdownContent(
     modifier: Modifier = Modifier,
     onCatalogLink: (String) -> Boolean = { false },
     compact: Boolean = true,
-    renderInlineImages: Boolean = true
+    renderInlineImages: Boolean = true,
+    preserveLineBreaks: Boolean = false
 ) {
     val context = LocalContext.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -697,13 +699,17 @@ internal fun MarkdownContent(
         codeBg,
         outline,
         compact,
-        renderInlineImages
+        renderInlineImages,
+        preserveLineBreaks
     ) {
         val builder = Markwon.builder(context)
         if (renderInlineImages) {
             builder.usePlugin(ImagesPlugin.create { plugin ->
                 plugin.errorHandler { _, _ -> null }
             })
+        }
+        if (preserveLineBreaks) {
+            builder.usePlugin(SoftBreakAddsNewLinePlugin.create())
         }
         builder
             .usePlugin(TablePlugin.create(context))
@@ -714,7 +720,7 @@ internal fun MarkdownContent(
                     builder
                         .linkColor(linkColor)
                         .isLinkUnderlined(false)
-                        .blockMargin(if (compact) 6 else 16)
+                        .blockMargin(if (compact) 8 else 14)
                         .blockQuoteColor(quoteColor)
                         .blockQuoteWidth(if (compact) 2 else 4)
                         .codeBackgroundColor(codeBg)
@@ -767,7 +773,7 @@ internal fun MarkdownContent(
             textView.setTextColor(textColor)
             textView.setLinkTextColor(linkColor)
             textView.textSize = textSizeSp
-            textView.setLineSpacing(if (compact) 0f else 6f, if (compact) 1.05f else 1.18f)
+            textView.setLineSpacing(if (compact) 2f else 4f, if (compact) 1.12f else 1.2f)
             textView.setPadding(0, 0, 0, 0)
             val prepared = DescriptionFormatter.prepare(markdown)
             if (textView.tag != prepared) {

@@ -88,4 +88,29 @@ class DescriptionFormatterTest {
         val out = DescriptionFormatter.prepare(raw)
         assertEquals("Title\n\nBody", out)
     }
+
+    @Test
+    fun prepare_stripsEmptyImageArtifacts() {
+        val out = DescriptionFormatter.prepare("!( )\n![]()\nKeep")
+        assertEquals("Keep", out)
+        assertTrue(!out.contains("!("))
+    }
+
+    @Test
+    fun blocks_unwrapsLinkedMarkdownImages() {
+        val raw = "[![cover](https://i.imgur.com/abc.jpg)](https://i.imgur.com/abc.jpg)\nHello"
+        val blocks = DescriptionFormatter.blocks(raw)
+        assertTrue(blocks.any { it is DescriptionBlock.Gallery && it.images.single().url.contains("imgur") })
+        assertTrue(blocks.none { it is DescriptionBlock.Markdown && it.text.contains("!(") })
+        val text = blocks.filterIsInstance<DescriptionBlock.Markdown>().joinToString { it.text }
+        assertTrue(text.contains("Hello"))
+        assertTrue(!text.contains("!["))
+    }
+
+    @Test
+    fun isImageArtifact_detectsLeftoverMarkdown() {
+        assertTrue(DescriptionFormatter.isImageArtifact("!( )"))
+        assertTrue(DescriptionFormatter.isImageArtifact("![]()"))
+        assertTrue(!DescriptionFormatter.isImageArtifact("Hello"))
+    }
 }
