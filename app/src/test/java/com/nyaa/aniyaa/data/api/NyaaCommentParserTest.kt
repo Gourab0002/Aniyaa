@@ -1,6 +1,7 @@
 package com.nyaa.aniyaa.data.api
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NyaaCommentParserTest {
@@ -53,5 +54,25 @@ Line 2</div>
         assertEquals("9", page.comments[0].id)
         assertEquals("bob", page.submitter)
         assertEquals("Release Title", page.title)
+    }
+
+    @Test
+    fun parse_convertsRenderedHtmlDescriptionToMarkdown() {
+        val html = """
+            <html><body>
+              <div id="torrent-description">
+                <h2>Screens</h2>
+                <p>Compare <strong>HEVC</strong> vs AVC.</p>
+                <img src="/img/a.png" alt="one" />
+                <table><tr><th>Codec</th><th>Size</th></tr><tr><td>HEVC</td><td>1 GiB</td></tr></table>
+              </div>
+            </body></html>
+        """.trimIndent()
+        val page = NyaaCommentParser.parse(html, "https://nyaa.si")
+        assertTrue(page.description.contains("## Screens"))
+        assertTrue(page.description.contains("**HEVC**"))
+        assertTrue(page.description.contains("![one](https://nyaa.si/img/a.png)"))
+        assertTrue(page.description.contains("| Codec | Size |"))
+        assertTrue(page.description.contains("| HEVC | 1 GiB |"))
     }
 }

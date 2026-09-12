@@ -103,6 +103,7 @@ import com.nyaa.aniyaa.ui.viewmodel.CommentsViewModel
 import com.nyaa.aniyaa.util.FileNode
 import com.nyaa.aniyaa.util.PubDateFormatter
 import com.nyaa.aniyaa.util.buildFileTree
+import com.nyaa.aniyaa.util.DescriptionFormatter
 import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.downloadTorrentFile
 import com.nyaa.aniyaa.util.filterFileEntries
@@ -501,35 +502,18 @@ fun TorrentDetailScreen(
 
             if (commentsState.description.isNotEmpty()) {
                 item(key = "description") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text(
-                            text = "Description",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        MarkdownContent(
-                            markdown = commentsState.description,
-                            onCatalogLink = { url ->
-                                val parsed = CatalogDeepLinks.parse(url, displayTorrent.site)
-                                if (parsed != null && (parsed.viewId != null || parsed.searchParams != null)) {
-                                    onOpenCatalogLink(parsed)
-                                    true
-                                } else {
-                                    false
-                                }
+                    DescriptionCard(
+                        markdown = commentsState.description,
+                        onCatalogLink = { url ->
+                            val parsed = CatalogDeepLinks.parse(url, displayTorrent.site)
+                            if (parsed != null && (parsed.viewId != null || parsed.searchParams != null)) {
+                                onOpenCatalogLink(parsed)
+                                true
+                            } else {
+                                false
                             }
-                        )
-                    }
-                }
+                        }
+                    )
                 }
             }
 
@@ -687,15 +671,24 @@ private fun CommentItem(
 }
 
 @Composable
-private fun MarkdownContent(
+internal fun MarkdownContent(
     markdown: String,
     modifier: Modifier = Modifier,
-    onCatalogLink: (String) -> Boolean = { false }
+    onCatalogLink: (String) -> Boolean = { false },
+    compact: Boolean = true
 ) {
     val context = LocalContext.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-    val textSizeSp = MaterialTheme.typography.bodySmall.fontSize.value
-    val markwon = remember(context, onCatalogLink) {
+    val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val quoteColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f).toArgb()
+    val codeBg = MaterialTheme.colorScheme.surfaceContainerLowest.toArgb()
+    val outline = MaterialTheme.colorScheme.outlineVariant.toArgb()
+    val textSizeSp = if (compact) {
+        MaterialTheme.typography.bodySmall.fontSize.value
+    } else {
+        MaterialTheme.typography.bodyMedium.fontSize.value
+    }
+    val markwon = remember(context, onCatalogLink, linkColor, quoteColor, codeBg, outline) {
         Markwon.builder(context)
             .usePlugin(ImagesPlugin.create { plugin ->
                 plugin.errorHandler { _, _ -> null }
@@ -704,6 +697,25 @@ private fun MarkdownContent(
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(LinkifyPlugin.create(true))
             .usePlugin(object : AbstractMarkwonPlugin() {
+                override fun configureTheme(builder: io.noties.markwon.core.MarkwonTheme.Builder) {
+                    builder
+                        .linkColor(linkColor)
+                        .isLinkUnderlined(false)
+                        .blockMargin(16)
+                        .blockQuoteColor(quoteColor)
+                        .blockQuoteWidth(4)
+                        .codeBackgroundColor(codeBg)
+                        .codeBlockBackgroundColor(codeBg)
+                        .codeTextColor(textColor)
+                        .codeBlockTextColor(textColor)
+                        .headingBreakHeight(0)
+                        .headingTextSizeMultipliers(floatArrayOf(1.55f, 1.35f, 1.2f, 1.1f, 1.05f, 1f))
+                        .thematicBreakColor(outline)
+                        .thematicBreakHeight(2)
+                        .listItemColor(linkColor)
+                        .bulletListItemStrokeWidth(2)
+                }
+
                 override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                     builder.linkResolver { view, link ->
                         if (onCatalogLink(link)) return@linkResolver
@@ -723,6 +735,7 @@ private fun MarkdownContent(
         factory = { ctx ->
             TextView(ctx).apply {
                 movementMethod = LinkMovementMethod.getInstance()
+                setLineSpacing(6f, 1.18f)
                 setOnTouchListener { view, event ->
                     if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                         view.parent?.requestDisallowInterceptTouchEvent(false)
@@ -734,10 +747,12 @@ private fun MarkdownContent(
         modifier = modifier.fillMaxWidth(),
         update = { textView ->
             textView.setTextColor(textColor)
+            textView.setLinkTextColor(linkColor)
             textView.textSize = textSizeSp
-            if (textView.tag != markdown) {
-                textView.tag = markdown
-                markwon.setMarkdown(textView, markdown)
+            val prepared = DescriptionFormatter.prepare(markdown)
+            if (textView.tag != prepared) {
+                textView.tag = prepared
+                markwon.setMarkdown(textView, prepared)
             }
         }
     )

@@ -8,6 +8,8 @@ import com.nyaa.aniyaa.data.model.TorrentPageData
 import com.nyaa.aniyaa.data.network.SiteConfig
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 
 object NyaaCommentParser {
 
@@ -15,7 +17,7 @@ object NyaaCommentParser {
         val doc = Jsoup.parse(html, baseUrl)
 
         val descriptionEl = doc.selectFirst("div#torrent-description")
-        val description = descriptionEl?.wholeText()?.trim().orEmpty()
+        val description = descriptionEl?.let { readDescription(it, baseUrl) }.orEmpty()
 
         val comments = mutableListOf<TorrentComment>()
         val commentElements = doc.select("div#comments div.comment-panel")
@@ -182,5 +184,121 @@ object NyaaCommentParser {
             }
         }
         return ""
+    }
+
+    internal fun readDescription(element: Element, baseUrl: String): String {
+        val rendered = element.select("img, table, p, h1, h2, h3, h4, pre, ul, ol, blockquote").isNotEmpty()
+        val markdown = if (rendered) htmlToMarkdown(element, baseUrl) else element.wholeText()
+        return markdown.trim()
+    }
+
+    private fun htmlToMarkdown(element: Element, baseUrl: String): String {
+        val out = StringBuilder()
+        writeMarkdown(element, out, baseUrl)
+        return out.toString()
+    }
+
+    private fun writeMarkdown(node: Node, out: StringBuilder, baseUrl: String) {
+        when (node) {
+            is TextNode -> out.append(node.text())
+            is Element -> {
+                val tag = node.tagName().lowercase()
+                when (tag) {
+                    "br" -> out.append('\n')
+                    "p", "div" -> {
+                        node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+                        out.append("\n\n")
+                    }
+                    "h1" -> wrapLine(node, out, baseUrl, "# ")
+                    "h2" -> wrapLine(node, out, baseUrl, "## ")
+                    "h3" -> wrapLine(node, out, baseUrl, "### ")
+                    "h4", "h5", "h6" -> wrapLine(node, out, baseUrl, "#### ")
+                    "strong", "b" -> wrap(node, out, baseUrl, "**", "**")
+                    "em", "i" -> wrap(node, out, baseUrl, "*", "*")
+                    "s", "del" -> wrap(node, out, baseUrl, "~~", "~~")
+                    "code" -> if (node.parent()?.tagName() == "pre") {
+                        node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+                    } else {
+                        wrap(node, out, baseUrl, "`", "`")
+                    }
+                    "pre" -> {
+                        out.append("\n```\n")
+                        out.append(node.wholeText().trimEnd())
+                        out.append("\n```\n")
+                    }
+                    "blockquote" -> {
+                        val inner = StringBuilder()
+                        node.childNodes().forEach { writeMarkdown(it, inner, baseUrl) }
+                        inner.toString().trim().lines().forEach { out.append("> ").append(it).append('\n') }
+                        out.append('\n')
+                    }
+                    "ul", "ol" -> {
+                        node.children().forEach { child ->
+                            if (child.tagName().equals("li", ignoreCase = true)) {
+                                out.append("- ")
+                                child.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+                                out.append('\n')
+                            }
+                        }
+                        out.append('\n')
+                    }
+                    "img" -> {
+                        val src = absoluteUrl(node, "src", baseUrl)
+                        if (src.isNotEmpty()) {
+                            val alt = node.attr("alt")
+                            out.append("![").append(alt).append("](").append(src).append(")\n")
+                        }
+                    }
+                    "a" -> {
+                        val href = absoluteUrl(node, "href", baseUrl)
+                        out.append('[')
+                        node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+                        out.append("](").append(href).append(')')
+                    }
+                    "hr" -> out.append("\n\n---\n\n")
+                    "table" -> out.append(tableMarkdown(node)).append('\n')
+                    else -> node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+                }
+            }
+        }
+    }
+
+    private fun wrap(node: Element, out: StringBuilder, baseUrl: String, prefix: String, suffix: String) {
+        out.append(prefix)
+        node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+        out.append(suffix)
+    }
+
+    private fun wrapLine(node: Element, out: StringBuilder, baseUrl: String, prefix: String) {
+        out.append(prefix)
+        node.childNodes().forEach { writeMarkdown(it, out, baseUrl) }
+        out.append("\n\n")
+    }
+
+    private fun tableMarkdown(table: Element): String {
+        val rows = table.select("tr")
+        if (rows.isEmpty()) return ""
+        val parsed = rows.map { row ->
+            row.select("th, td").map { it.text().trim() }
+        }.filter { it.isNotEmpty() }
+        if (parsed.isEmpty()) return ""
+        val width = parsed.maxOf { it.size }
+        fun pad(row: List<String>) = row + List(width - row.size) { "" }
+        val header = pad(parsed.first())
+        val body = parsed.drop(1).map(::pad)
+        val sb = StringBuilder()
+        sb.append("| ").append(header.joinToString(" | ")).append(" |\n")
+        sb.append("| ").append(List(width) { "---" }.joinToString(" | ")).append(" |\n")
+        body.forEach { sb.append("| ").append(it.joinToString(" | ")).append(" |\n") }
+        return sb.toString()
+    }
+
+    private fun absoluteUrl(element: Element, attr: String, baseUrl: String): String {
+        val value = element.absUrl(attr).ifBlank { element.attr(attr) }
+        return when {
+            value.startsWith("//") -> "https:$value"
+            value.startsWith("/") -> baseUrl.trimEnd('/') + value
+            else -> value
+        }
     }
 }
