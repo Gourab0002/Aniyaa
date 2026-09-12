@@ -14,7 +14,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,8 +34,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -48,6 +45,8 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
@@ -107,7 +106,6 @@ import com.nyaa.aniyaa.data.api.resolvedMagnet
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Category
 import com.nyaa.aniyaa.data.model.FilterOption
-import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.SortField
 import com.nyaa.aniyaa.data.model.SortOrder
@@ -148,7 +146,6 @@ fun SearchScreen(
     val viewModel = searchViewModel
     val query by viewModel.query.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
     val bookmarks by bookmarkViewModel.allBookmarks.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -173,7 +170,6 @@ fun SearchScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
     val interactionSource = remember { MutableInteractionSource() }
-    val searchFocused by interactionSource.collectIsFocusedAsState()
     val bookmarkedIds = remember(bookmarks) { bookmarks.map { it.bookmarkKey() }.toSet() }
     var showSukebeiWarning by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -197,13 +193,6 @@ fun SearchScreen(
     val searchIdentity = "${uiState.searchParams.site.id}|${uiState.searchParams.query}|${uiState.searchParams.category.value}|${uiState.searchParams.filter.value}|${uiState.searchParams.sortField.value}|${uiState.searchParams.sortOrder.value}"
     LaunchedEffect(searchIdentity) {
         listState.scrollToItem(0)
-    }
-
-    val suggestions = remember(query, history, searchFocused) {
-        if (!searchFocused) emptyList()
-        else history.filter {
-            it.site == uiState.searchParams.site && it.query.contains(query.trim(), ignoreCase = true)
-        }.take(6)
     }
 
     Scaffold(
@@ -285,6 +274,18 @@ fun SearchScreen(
                         }
                     }
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        IconButton(onClick = {
+                            selecting = !selecting
+                            if (!selecting) selectedKeys = emptySet()
+                        }) {
+                            Icon(
+                                if (selecting) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                contentDescription = if (selecting) "Done selecting" else "Select listings",
+                                tint = if (selecting) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                         IconButton(onClick = { showFilterSheet = true }) {
                             BadgedBox(
                                 badge = {
@@ -301,14 +302,6 @@ fun SearchScreen(
                             }
                         }
                     }
-                }
-                if (searchFocused) {
-                    Text(
-                        text = "Tip: user:Name finds that uploader’s listings",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, top = 6.dp)
-                    )
                 }
                 if (prefs.sukebeiEnabled) {
                     Spacer(Modifier.height(8.dp))
@@ -339,128 +332,6 @@ fun SearchScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (suggestions.isNotEmpty()) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                ) {
-                    suggestions.forEach { entry ->
-                        Text(
-                            text = entry.query,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    keyboardController?.hide()
-                                    viewModel.applyHistory(entry)
-                                }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
-            val siteHistory = history.filter { it.site == uiState.searchParams.site && it.query.isNotBlank() }
-            val filterCaption = uiState.searchParams.activeFilterCaption()
-            Column {
-                    val primaryCategories = uiState.searchParams.site.primaryCategories
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(primaryCategories, key = { it.value }) { category ->
-                            FilterChip(
-                                selected = category.groups(uiState.searchParams.category),
-                                onClick = {
-                                    viewModel.updateCategory(category)
-                                    viewModel.search()
-                                },
-                                label = { Text(category.shortLabel) },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = uiState.searchParams.filter == FilterOption.TRUSTED,
-                                onClick = {
-                                    viewModel.updateFilter(
-                                        if (uiState.searchParams.filter == FilterOption.TRUSTED) {
-                                            FilterOption.ALL
-                                        } else {
-                                            FilterOption.TRUSTED
-                                        }
-                                    )
-                                    viewModel.search()
-                                },
-                                label = { Text("Trusted") },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = uiState.searchParams.filter == FilterOption.NO_REMAKES,
-                                onClick = {
-                                    viewModel.updateFilter(
-                                        if (uiState.searchParams.filter == FilterOption.NO_REMAKES) {
-                                            FilterOption.ALL
-                                        } else {
-                                            FilterOption.NO_REMAKES
-                                        }
-                                    )
-                                    viewModel.search()
-                                },
-                                label = { Text("No remakes") },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = selecting,
-                                onClick = {
-                                    selecting = !selecting
-                                    if (!selecting) selectedKeys = emptySet()
-                                },
-                                label = { Text(if (selecting) "Done" else "Select") },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
-                    if (filterCaption.isNotBlank()) {
-                        Text(
-                            text = filterCaption,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                        )
-                    }
-                    if (siteHistory.isNotEmpty()) {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(siteHistory.take(8), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
-                                FilterChip(
-                                    selected = false,
-                                    onClick = { viewModel.applyHistory(entry) },
-                                    label = {
-                                        Text(
-                                            entry.query,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.widthIn(max = 180.dp)
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-            }
             if (selecting && selectedKeys.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -861,7 +732,13 @@ fun FilterBottomSheetContent(
             text = "Search Filters",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Text(
+            text = "Tip: user:Name finds that uploader’s listings",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 16.dp)
         )
         Text(
             text = "CATEGORY",
