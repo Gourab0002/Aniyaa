@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Share
@@ -136,6 +138,7 @@ fun TorrentDetailScreen(
     val context = LocalContext.current
     val prefs = com.nyaa.aniyaa.AniyaaApplication.instance.prefs
     var fileQuery by remember { mutableStateOf("") }
+    var filesExpanded by remember(torrent.id, torrent.site) { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val bookmarks by bookmarkViewModel.allBookmarks.collectAsStateWithLifecycle()
@@ -532,32 +535,43 @@ fun TorrentDetailScreen(
 
             if (commentsState.fileList.isNotEmpty()) {
                 val visibleFiles = filterFileEntries(commentsState.fileList, fileQuery)
-                item(key = "files-header") {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        FileListHeader(
-                            count = visibleFiles.size,
-                            totalSize = totalSizeLabel(visibleFiles)
-                        )
-                        if (commentsState.fileList.size > 8) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = fileQuery,
-                                onValueChange = { fileQuery = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                placeholder = { Text("Filter files") }
+                item(key = "files") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            FileListHeader(
+                                count = commentsState.fileList.size,
+                                totalSize = totalSizeLabel(commentsState.fileList),
+                                expanded = filesExpanded,
+                                onToggle = { filesExpanded = !filesExpanded }
                             )
+                            if (filesExpanded) {
+                                if (commentsState.fileList.size > 8) {
+                                    Spacer(Modifier.height(12.dp))
+                                    OutlinedTextField(
+                                        value = fileQuery,
+                                        onValueChange = { fileQuery = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        placeholder = { Text("Filter files") }
+                                    )
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                FileTree(
+                                    nodes = buildFileTree(visibleFiles),
+                                    onCopyPath = { path ->
+                                        copyText(context, "File path", path)
+                                        showMessage("Copied path")
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-                item(key = "files-tree") {
-                    FileTree(
-                        nodes = buildFileTree(visibleFiles),
-                        onCopyPath = { path ->
-                            copyText(context, "File path", path)
-                            showMessage("Copied path")
-                        }
-                    )
                 }
             }
 
@@ -775,8 +789,16 @@ private fun InfoRow(label: String, value: String, onClick: (() -> Unit)? = null)
 }
 
 @Composable
-private fun FileListHeader(count: Int, totalSize: String = "") {
+private fun FileListHeader(
+    count: Int,
+    totalSize: String = "",
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
     Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -798,6 +820,12 @@ private fun FileListHeader(count: Int, totalSize: String = "") {
                 fontWeight = FontWeight.Bold
             )
         }
+        Spacer(Modifier.weight(1f))
+        Icon(
+            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Hide files" else "Show files",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -812,7 +840,7 @@ private fun FileTree(nodes: List<FileNode>, onCopyPath: (String) -> Unit, indent
 
 @Composable
 private fun FileTreeNode(node: FileNode, onCopyPath: (String) -> Unit, indent: Int) {
-    var expanded by remember(node.path) { mutableStateOf(indent == 0 && !node.isFolder) }
+    var expanded by remember(node.path) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
