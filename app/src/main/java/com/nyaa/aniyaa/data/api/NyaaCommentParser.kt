@@ -156,7 +156,7 @@ object NyaaCommentParser {
             if (!li.tagName().equals("li", ignoreCase = true)) continue
             val childUl = li.children().firstOrNull { it.tagName().equals("ul", ignoreCase = true) }
             if (childUl != null) {
-                val folder = li.ownText().trim()
+                val folder = folderName(li)
                 val nextPrefix = when {
                     prefix.isEmpty() -> folder
                     folder.isEmpty() -> prefix
@@ -164,15 +164,34 @@ object NyaaCommentParser {
                 }
                 collectFiles(childUl, nextPrefix, out)
             } else {
-                val size = li.selectFirst("span.pull-right")?.text()?.trim().orEmpty()
-                li.selectFirst("span.pull-right")?.remove()
-                val name = li.text().trim()
+                val size = readFileSize(li)
+                val name = fileName(li)
                 if (name.isNotEmpty()) {
                     val fullName = if (prefix.isEmpty()) name else "$prefix/$name"
                     out.add(TorrentFileEntry(name = fullName, size = size))
                 }
             }
         }
+    }
+
+    private fun readFileSize(li: Element): String {
+        val raw = li.selectFirst(FILE_SIZE_SELECTOR)?.text()?.trim().orEmpty()
+        return raw.removePrefix("(").removeSuffix(")").trim()
+    }
+
+    private fun fileName(li: Element): String {
+        val clone = li.clone()
+        clone.select(FILE_SIZE_SELECTOR).remove()
+        clone.select("i, svg").remove()
+        return clone.text().trim()
+    }
+
+    private fun folderName(li: Element): String {
+        val fromLink = li.selectFirst("a.folder")?.text()?.trim().orEmpty()
+        if (fromLink.isNotEmpty()) return fromLink
+        val clone = li.clone()
+        clone.select("ul, i, svg").remove()
+        return clone.text().trim().ifBlank { li.ownText().trim() }
     }
 
     private fun labeledValue(doc: org.jsoup.nodes.Document, label: String): String {
@@ -301,4 +320,6 @@ object NyaaCommentParser {
             else -> value
         }
     }
+
+    private const val FILE_SIZE_SELECTOR = "span.file-size, span.file_size, span.pull-right"
 }

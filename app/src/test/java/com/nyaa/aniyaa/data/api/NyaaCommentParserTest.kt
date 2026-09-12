@@ -54,6 +54,36 @@ Line 2</div>
         assertEquals("9", page.comments[0].id)
         assertEquals("bob", page.submitter)
         assertEquals("Release Title", page.title)
+        assertEquals("200.0 MiB", page.fileList[1].size)
+    }
+
+    @Test
+    fun parse_readsNyaaFileSizeSpansAndFolderLinks() {
+        val html = """
+            <html><body>
+              <div class="torrent-file-list panel-body">
+                <ul>
+                  <li>
+                    <a href="" class="folder"><i class="fa fa-folder"></i>Show</a>
+                    <ul>
+                      <li><i class="fa fa-file"></i>Episode.01.mkv <span class="file-size">(1.4 GiB)</span></li>
+                      <li><i class="fa fa-file"></i>Episode.02.mkv <span class="file-size">(1.3 GiB)</span></li>
+                    </ul>
+                  </li>
+                  <li><i class="fa fa-file"></i>readme.txt <span class="file-size">(12.0 KiB)</span></li>
+                </ul>
+              </div>
+            </body></html>
+        """.trimIndent()
+        val page = NyaaCommentParser.parse(html, "https://nyaa.si")
+        assertEquals(3, page.fileList.size)
+        assertEquals("Show/Episode.01.mkv", page.fileList[0].name)
+        assertEquals("1.4 GiB", page.fileList[0].size)
+        assertEquals("Show/Episode.02.mkv", page.fileList[1].name)
+        assertEquals("1.3 GiB", page.fileList[1].size)
+        assertEquals("readme.txt", page.fileList[2].name)
+        assertEquals("12.0 KiB", page.fileList[2].size)
+        assertTrue(page.fileList.none { it.name.contains("GiB") || it.name.contains("KiB") })
     }
 
     @Test

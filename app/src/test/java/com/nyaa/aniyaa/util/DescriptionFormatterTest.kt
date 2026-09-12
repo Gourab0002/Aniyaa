@@ -70,4 +70,22 @@ class DescriptionFormatterTest {
         assertEquals(3, blocks.size)
         assertEquals("mediainfo", (blocks[1] as DescriptionBlock.Code).body)
     }
+
+    @Test
+    fun compactMarkdown_dropsEmptyAndUnsafeLinks() {
+        val raw = "See [Nyaa](https://nyaa.si) and [gone]() plus [bad](javascript:alert(1))"
+        val out = DescriptionFormatter.compactMarkdown(raw)
+        assertTrue(out.contains("[Nyaa](https://nyaa.si)"))
+        assertTrue(out.contains("gone"))
+        assertTrue(out.contains("bad"))
+        assertTrue(!out.contains("]()"))
+        assertTrue(!out.contains("javascript:"))
+    }
+
+    @Test
+    fun prepare_stripsEmptyImagesAndExtraBlankLines() {
+        val raw = "Title\n\n\n![]()\n\nBody"
+        val out = DescriptionFormatter.prepare(raw)
+        assertEquals("Title\n\nBody", out)
+    }
 }

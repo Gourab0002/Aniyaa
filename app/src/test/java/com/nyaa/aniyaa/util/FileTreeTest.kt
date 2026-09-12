@@ -20,6 +20,9 @@ class FileTreeTest {
         assertEquals("folder", folder.name)
         assertEquals(1, folder.children.size)
         assertEquals("inner.mp4", folder.children.first().name)
+        assertEquals("800.0 MiB", folder.children.first().size)
+        assertEquals("200.0 MiB", tree.first { !it.isFolder }.size)
+        assertEquals("800.0 MiB", folder.size)
     }
 
     @Test

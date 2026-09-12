@@ -675,7 +675,8 @@ internal fun MarkdownContent(
     markdown: String,
     modifier: Modifier = Modifier,
     onCatalogLink: (String) -> Boolean = { false },
-    compact: Boolean = true
+    compact: Boolean = true,
+    renderInlineImages: Boolean = true
 ) {
     val context = LocalContext.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -688,11 +689,23 @@ internal fun MarkdownContent(
     } else {
         MaterialTheme.typography.bodyMedium.fontSize.value
     }
-    val markwon = remember(context, onCatalogLink, linkColor, quoteColor, codeBg, outline) {
-        Markwon.builder(context)
-            .usePlugin(ImagesPlugin.create { plugin ->
+    val markwon = remember(
+        context,
+        onCatalogLink,
+        linkColor,
+        quoteColor,
+        codeBg,
+        outline,
+        compact,
+        renderInlineImages
+    ) {
+        val builder = Markwon.builder(context)
+        if (renderInlineImages) {
+            builder.usePlugin(ImagesPlugin.create { plugin ->
                 plugin.errorHandler { _, _ -> null }
             })
+        }
+        builder
             .usePlugin(TablePlugin.create(context))
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(LinkifyPlugin.create(true))
@@ -701,19 +714,25 @@ internal fun MarkdownContent(
                     builder
                         .linkColor(linkColor)
                         .isLinkUnderlined(false)
-                        .blockMargin(16)
+                        .blockMargin(if (compact) 6 else 16)
                         .blockQuoteColor(quoteColor)
-                        .blockQuoteWidth(4)
+                        .blockQuoteWidth(if (compact) 2 else 4)
                         .codeBackgroundColor(codeBg)
                         .codeBlockBackgroundColor(codeBg)
                         .codeTextColor(textColor)
                         .codeBlockTextColor(textColor)
                         .headingBreakHeight(0)
-                        .headingTextSizeMultipliers(floatArrayOf(1.55f, 1.35f, 1.2f, 1.1f, 1.05f, 1f))
+                        .headingTextSizeMultipliers(
+                            if (compact) {
+                                floatArrayOf(1.18f, 1.12f, 1.06f, 1.02f, 1f, 1f)
+                            } else {
+                                floatArrayOf(1.55f, 1.35f, 1.2f, 1.1f, 1.05f, 1f)
+                            }
+                        )
                         .thematicBreakColor(outline)
-                        .thematicBreakHeight(2)
+                        .thematicBreakHeight(if (compact) 1 else 2)
                         .listItemColor(linkColor)
-                        .bulletListItemStrokeWidth(2)
+                        .bulletListItemStrokeWidth(if (compact) 1 else 2)
                 }
 
                 override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
@@ -735,7 +754,6 @@ internal fun MarkdownContent(
         factory = { ctx ->
             TextView(ctx).apply {
                 movementMethod = LinkMovementMethod.getInstance()
-                setLineSpacing(6f, 1.18f)
                 setOnTouchListener { view, event ->
                     if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                         view.parent?.requestDisallowInterceptTouchEvent(false)
@@ -749,6 +767,8 @@ internal fun MarkdownContent(
             textView.setTextColor(textColor)
             textView.setLinkTextColor(linkColor)
             textView.textSize = textSizeSp
+            textView.setLineSpacing(if (compact) 0f else 6f, if (compact) 1.05f else 1.18f)
+            textView.setPadding(0, 0, 0, 0)
             val prepared = DescriptionFormatter.prepare(markdown)
             if (textView.tag != prepared) {
                 textView.tag = prepared

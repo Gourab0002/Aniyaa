@@ -15,7 +15,7 @@ data class DescriptionImage(
 object DescriptionFormatter {
 
     fun prepare(raw: String): String {
-        return normalizeWhitespace(convertBbcode(raw.trim()))
+        return compactMarkdown(normalizeWhitespace(convertBbcode(raw.trim())))
     }
 
     fun blocks(raw: String): List<DescriptionBlock> {
@@ -55,6 +55,16 @@ object DescriptionFormatter {
             .replace(Regex("[ \\t]+\\n"), "\n")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
+    }
+
+    internal fun compactMarkdown(input: String): String {
+        var text = EMPTY_IMAGE.replace(input, "")
+        text = MARKDOWN_LINK_HREF.replace(text) { match ->
+            val label = match.groupValues[1]
+            val url = match.groupValues[2].trim()
+            if (isSafeHttpUrl(url)) match.value else label
+        }
+        return normalizeWhitespace(text)
     }
 
     private fun splitBlocks(input: String): List<DescriptionBlock> {
@@ -259,6 +269,8 @@ object DescriptionFormatter {
         """\[/?(?:b|i|u|s|img|url|quote|code|list|center|left|right|color|size|font|spoiler|hr|li)(?:=[^\]]*)?]""",
         RegexOption.IGNORE_CASE
     )
+    private val EMPTY_IMAGE = Regex("""!\[(.*?)]\(\s*\)""")
+    private val MARKDOWN_LINK_HREF = Regex("""(?<!!)\[((?:\\.|[^\]\\])*)]\(([^)]*)\)""")
     private val MARKDOWN_IMAGE_ANY = Regex("""!\[(.*?)]\((https?://[^)\s]+)\)""")
     private val MARKDOWN_LINK_ANY = Regex("""(?<!!)\[((?:\\.|[^\]\\])*)]\((https?://[^)\s]+)\)""")
     private val BARE_IMAGE_ANY = Regex(
