@@ -15,7 +15,7 @@ data class DescriptionImage(
 object DescriptionFormatter {
 
     fun prepare(raw: String): String {
-        return compactMarkdown(normalizeWhitespace(convertBbcode(raw.trim())))
+        return stripEmptyImageMarkup(normalizeWhitespace(convertBbcode(raw.trim())))
     }
 
     fun blocks(raw: String): List<DescriptionBlock> {
@@ -57,19 +57,14 @@ object DescriptionFormatter {
             .trim()
     }
 
-    internal fun compactMarkdown(input: String): String {
-        var text = WRAPPED_IMAGE.replace(input) { match ->
-            "![${match.groupValues[1]}](${match.groupValues[2]})"
-        }
-        text = EMPTY_IMAGE.replace(text, "")
+    internal fun compactMarkdown(input: String): String = stripEmptyImageMarkup(input)
+
+    internal fun stripEmptyImageMarkup(input: String): String {
+        var text = EMPTY_IMAGE.replace(input, "")
         text = MARKDOWN_LINK_HREF.replace(text) { match ->
             val label = match.groupValues[1]
             val url = match.groupValues[2].trim()
-            when {
-                isImageUrl(url) && isSafeHttpUrl(url) -> "![${label.trim()}]($url)"
-                isSafeHttpUrl(url) && label.isNotBlank() -> match.value
-                else -> label
-            }
+            if (isSafeHttpUrl(url) && label.isNotBlank()) match.value else label
         }
         return normalizeWhitespace(text)
     }

@@ -87,6 +87,23 @@ Line 2</div>
     }
 
     @Test
+    fun parse_keepsRawMarkdownDescription() {
+        val html = """
+            <html><body>
+              <div id="torrent-description">![cover](https://i.imgur.com/abc.jpg)
+
+Yes, I did temporarily resurrect myself.
+
+PS: Beware slow initial seeding.</div>
+            </body></html>
+        """.trimIndent()
+        val page = NyaaCommentParser.parse(html, "https://nyaa.si")
+        assertTrue(page.description.contains("![cover](https://i.imgur.com/abc.jpg)"))
+        assertTrue(page.description.contains("Yes, I did temporarily resurrect myself."))
+        assertTrue(page.description.contains("PS: Beware slow initial seeding."))
+    }
+
+    @Test
     fun parse_convertsRenderedHtmlDescriptionToMarkdown() {
         val html = """
             <html><body>

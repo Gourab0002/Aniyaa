@@ -97,14 +97,11 @@ class DescriptionFormatterTest {
     }
 
     @Test
-    fun blocks_unwrapsLinkedMarkdownImages() {
-        val raw = "[![cover](https://i.imgur.com/abc.jpg)](https://i.imgur.com/abc.jpg)\nHello"
-        val blocks = DescriptionFormatter.blocks(raw)
-        assertTrue(blocks.any { it is DescriptionBlock.Gallery && it.images.single().url.contains("imgur") })
-        assertTrue(blocks.none { it is DescriptionBlock.Markdown && it.text.contains("!(") })
-        val text = blocks.filterIsInstance<DescriptionBlock.Markdown>().joinToString { it.text }
-        assertTrue(text.contains("Hello"))
-        assertTrue(!text.contains("!["))
+    fun prepare_keepsMarkdownImagesForGfm() {
+        val raw = "![art](https://i.imgur.com/abc.jpg)\n\nHello"
+        val out = DescriptionFormatter.prepare(raw)
+        assertTrue(out.contains("![art](https://i.imgur.com/abc.jpg)"))
+        assertTrue(out.contains("Hello"))
     }
 
     @Test

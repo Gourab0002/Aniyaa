@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.text.method.LinkMovementMethod
 import android.view.MotionEvent
@@ -95,6 +97,7 @@ import com.nyaa.aniyaa.ui.theme.NyaaLeecher
 import com.nyaa.aniyaa.ui.theme.NyaaRemake
 import com.nyaa.aniyaa.ui.theme.NyaaSeeder
 import com.nyaa.aniyaa.ui.theme.NyaaTrusted
+import com.nyaa.aniyaa.data.network.AppHttpClient
 import com.nyaa.aniyaa.data.network.SiteConfig
 import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
@@ -117,10 +120,10 @@ import com.nyaa.aniyaa.util.torrentShareText
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.MarkwonConfiguration
-import io.noties.markwon.SoftBreakAddsNewLinePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.image.ImagesPlugin
+import io.noties.markwon.image.network.OkHttpNetworkSchemeHandler
 import io.noties.markwon.linkify.LinkifyPlugin
 import kotlinx.coroutines.launch
 
@@ -677,8 +680,7 @@ internal fun MarkdownContent(
     modifier: Modifier = Modifier,
     onCatalogLink: (String) -> Boolean = { false },
     compact: Boolean = true,
-    renderInlineImages: Boolean = true,
-    preserveLineBreaks: Boolean = false
+    renderInlineImages: Boolean = true
 ) {
     val context = LocalContext.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -699,17 +701,16 @@ internal fun MarkdownContent(
         codeBg,
         outline,
         compact,
-        renderInlineImages,
-        preserveLineBreaks
+        renderInlineImages
     ) {
         val builder = Markwon.builder(context)
         if (renderInlineImages) {
             builder.usePlugin(ImagesPlugin.create { plugin ->
-                plugin.errorHandler { _, _ -> null }
+                plugin.addSchemeHandler(OkHttpNetworkSchemeHandler.create(AppHttpClient.imageClient))
+                plugin.errorHandler { _, _ ->
+                    ColorDrawable(AndroidColor.TRANSPARENT).apply { setBounds(0, 0, 0, 0) }
+                }
             })
-        }
-        if (preserveLineBreaks) {
-            builder.usePlugin(SoftBreakAddsNewLinePlugin.create())
         }
         builder
             .usePlugin(TablePlugin.create(context))
@@ -773,7 +774,7 @@ internal fun MarkdownContent(
             textView.setTextColor(textColor)
             textView.setLinkTextColor(linkColor)
             textView.textSize = textSizeSp
-            textView.setLineSpacing(if (compact) 2f else 4f, if (compact) 1.12f else 1.2f)
+            textView.setLineSpacing(if (compact) 2f else 6f, if (compact) 1.15f else 1.25f)
             textView.setPadding(0, 0, 0, 0)
             val prepared = DescriptionFormatter.prepare(markdown)
             if (textView.tag != prepared) {

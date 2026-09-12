@@ -206,8 +206,12 @@ object NyaaCommentParser {
     }
 
     internal fun readDescription(element: Element, baseUrl: String): String {
-        val rendered = element.select("img, table, p, h1, h2, h3, h4, pre, ul, ol, blockquote").isNotEmpty()
-        val markdown = if (rendered) htmlToMarkdown(element, baseUrl) else element.wholeText()
+        // Nyaa keeps markdown in #torrent-description and renders it in the browser.
+        // Meoko scrapes that raw text and feeds it to a GFM renderer.
+        val htmlBlocks = element.children().any { child ->
+            child.tagName().lowercase() in HTML_DESCRIPTION_TAGS
+        }
+        val markdown = if (htmlBlocks) htmlToMarkdown(element, baseUrl) else element.wholeText()
         return markdown.trim()
     }
 
@@ -322,4 +326,8 @@ object NyaaCommentParser {
     }
 
     private const val FILE_SIZE_SELECTOR = "span.file-size, span.file_size, span.pull-right"
+    private val HTML_DESCRIPTION_TAGS = setOf(
+        "p", "div", "img", "table", "pre", "ul", "ol", "blockquote",
+        "h1", "h2", "h3", "h4", "h5", "h6"
+    )
 }
