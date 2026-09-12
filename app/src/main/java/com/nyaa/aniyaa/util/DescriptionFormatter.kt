@@ -93,28 +93,34 @@ object DescriptionFormatter {
                     }
                     parseTable(tableLines)?.let { blocks += it }
                 }
-                imageFromLine(line) != null -> {
+                imagesIn(line).isNotEmpty() -> {
                     flushMarkdown()
+                    val leftover = stripImages(line)
+                    if (leftover.isNotBlank()) {
+                        blocks += DescriptionBlock.Markdown(leftover)
+                    }
                     val images = ArrayList<DescriptionImage>()
                     while (index < lines.size) {
-                        val image = imageFromLine(lines[index])
-                        if (image == null) {
+                        val found = imagesIn(lines[index])
+                        if (found.isEmpty()) {
                             if (lines[index].isBlank() &&
                                 index + 1 < lines.size &&
-                                imageFromLine(lines[index + 1]) != null
+                                imagesIn(lines[index + 1]).isNotEmpty()
                             ) {
                                 index++
                                 continue
                             }
                             break
                         }
-                        images += image
+                        if (index > 0 && images.isNotEmpty()) {
+                            val extraText = stripImages(lines[index])
+                            if (extraText.isNotBlank()) break
+                        }
+                        images += found
                         index++
                     }
-                    if (images.size == 1) {
-                        buffer.append("![").append(images[0].alt).append("](").append(images[0].url).append(')')
-                    } else {
-                        blocks += DescriptionBlock.Gallery(images)
+                    if (images.isNotEmpty()) {
+                        blocks += DescriptionBlock.Gallery(images.distinctBy { it.url })
                     }
                 }
                 else -> {
@@ -164,20 +170,48 @@ object DescriptionFormatter {
         return trimmed.split('|').map { it.trim() }
     }
 
-    internal fun imageFromLine(line: String): DescriptionImage? {
-        val trimmed = line.trim()
-        if (trimmed.isEmpty()) return null
-        val markdown = MARKDOWN_IMAGE.matchEntire(trimmed)
-        if (markdown != null) {
-            val url = markdown.groupValues[2].trim()
-            if (isSafeHttpUrl(url)) return DescriptionImage(url, markdown.groupValues[1].trim())
+    internal fun imagesIn(line: String): List<DescriptionImage> {
+        val found = LinkedHashMap<String, DescriptionImage>()
+        MARKDOWN_IMAGE_ANY.findAll(line).forEach { match ->
+            val url = match.groupValues[2].trim()
+            if (isSafeHttpUrl(url)) {
+                found[url] = DescriptionImage(url, match.groupValues[1].trim())
+            }
         }
-        val bare = BARE_IMAGE.matchEntire(trimmed)
-        if (bare != null && isSafeHttpUrl(trimmed)) {
-            return DescriptionImage(trimmed)
+        MARKDOWN_LINK_ANY.findAll(line).forEach { match ->
+            val url = match.groupValues[2].trim()
+            if (url !in found && isImageUrl(url) && isSafeHttpUrl(url)) {
+                found[url] = DescriptionImage(url, match.groupValues[1].trim())
+            }
         }
-        return null
+        BARE_IMAGE_ANY.findAll(line).forEach { match ->
+            val url = match.value.trim().trimEnd(')', ',', '.', ';')
+            if (url !in found && isSafeHttpUrl(url) && isImageUrl(url)) {
+                found[url] = DescriptionImage(url)
+            }
+        }
+        return found.values.toList()
     }
+
+    internal fun stripImages(line: String): String {
+        var text = MARKDOWN_IMAGE_ANY.replace(line, " ")
+        text = MARKDOWN_LINK_ANY.replace(text) { match ->
+            val url = match.groupValues[2].trim()
+            if (isImageUrl(url)) " " else match.value
+        }
+        text = BARE_IMAGE_ANY.replace(text) { match ->
+            if (isImageUrl(match.value.trim().trimEnd(')', ',', '.', ';'))) " " else match.value
+        }
+        return text.replace(Regex("\\s+"), " ").trim()
+    }
+
+    internal fun isImageUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        if (IMAGE_EXT.containsMatchIn(lower)) return true
+        return IMAGE_HOSTS.any { lower.contains(it) }
+    }
+
+    internal fun imageFromLine(line: String): DescriptionImage? = imagesIn(line).singleOrNull()
 
     private val BB_IMG = Regex(
         """\[img(?:\s*=\s*"?([^\]"\s]+)"?)?]\s*(.*?)\s*\[/img]|\[img=([^\]]+)]""",
@@ -225,6 +259,34 @@ object DescriptionFormatter {
         """\[/?(?:b|i|u|s|img|url|quote|code|list|center|left|right|color|size|font|spoiler|hr|li)(?:=[^\]]*)?]""",
         RegexOption.IGNORE_CASE
     )
-    private val MARKDOWN_IMAGE = Regex("""^!\[(.*?)]\((https?://[^)\s]+)\)$""")
-    private val BARE_IMAGE = Regex("""^https?://\S+\.(?:png|jpe?g|gif|webp|avif)(?:\?\S*)?$""", RegexOption.IGNORE_CASE)
+    private val MARKDOWN_IMAGE_ANY = Regex("""!\[(.*?)]\((https?://[^)\s]+)\)""")
+    private val MARKDOWN_LINK_ANY = Regex("""(?<!!)\[((?:\\.|[^\]\\])*)]\((https?://[^)\s]+)\)""")
+    private val BARE_IMAGE_ANY = Regex(
+        """https?://[^\s)<>"']+""",
+        RegexOption.IGNORE_CASE
+    )
+    private val IMAGE_EXT = Regex("""\.(?:png|jpe?g|gif|webp|avif|bmp)(?:\?|$|#)""", RegexOption.IGNORE_CASE)
+    private val IMAGE_HOSTS = listOf(
+        "i.imgur.com",
+        "imgur.com/",
+        "catbox.moe",
+        "files.catbox.moe",
+        "imgchest.com",
+        "cdn.imgchest.com",
+        "i.ibb.co",
+        "ibb.co/",
+        "imgbb.com",
+        "postimg.cc",
+        "i.postimg.cc",
+        "imagebam.com",
+        "imgbox.com",
+        "freeimage.host",
+        "iili.io",
+        "kei.gg",
+        "slow.pics",
+        "slowpics.org",
+        "imgpile.com",
+        "lensdump.com",
+        "p.sda1.dev"
+    )
 }

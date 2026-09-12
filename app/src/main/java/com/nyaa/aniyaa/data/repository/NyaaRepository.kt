@@ -5,7 +5,10 @@ import com.nyaa.aniyaa.data.api.NyaaHtmlSearchParser
 import com.nyaa.aniyaa.data.api.NyaaRssParser
 import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.SearchParams
+import com.nyaa.aniyaa.data.model.SortField
+import com.nyaa.aniyaa.data.model.SortOrder
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.util.parseSizeBytes
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import com.nyaa.aniyaa.data.network.AppHttpClient
 import com.nyaa.aniyaa.data.network.CatalogMirrors
@@ -26,6 +29,22 @@ import java.util.concurrent.TimeUnit
 internal const val NYAA_PAGE_SIZE = 75
 
 internal fun torrentIdentity(torrent: Torrent): String = torrent.bookmarkKey()
+
+internal fun sortTorrents(torrents: List<Torrent>, params: SearchParams): List<Torrent> {
+    val comparator = when (params.sortField) {
+        SortField.SEEDERS -> compareBy<Torrent> { it.seeders }
+        SortField.LEECHERS -> compareBy { it.leechers }
+        SortField.DOWNLOADS -> compareBy { it.downloads }
+        SortField.COMMENTS -> compareBy { it.comments }
+        SortField.SIZE -> compareBy { parseSizeBytes(it.size) ?: 0L }
+        SortField.DATE -> return torrents
+    }
+    return if (params.sortOrder == SortOrder.DESC) {
+        torrents.sortedWith(comparator.reversed())
+    } else {
+        torrents.sortedWith(comparator)
+    }
+}
 
 internal fun mergeSearchPages(
     existing: List<Torrent>,
@@ -134,11 +153,17 @@ class NyaaRepository(
         fromCache: Boolean,
         forceNetwork: Boolean
     ): Result<List<Torrent>> {
-        val rssResult = fetchRss(params, baseUrl, fromCache, forceNetwork)
-        if (fromCache) return rssResult
-        if (rssResult.isSuccess) return rssResult
+        if (fromCache) {
+            return fetchRss(params, baseUrl, fromCache = true, forceNetwork = false)
+        }
         val htmlResult = fetchHtml(params, baseUrl, forceNetwork)
-        return if (htmlResult.isSuccess) htmlResult else rssResult
+        if (htmlResult.isSuccess) return htmlResult
+        val rssResult = fetchRss(params, baseUrl, fromCache = false, forceNetwork = forceNetwork)
+        return if (rssResult.isSuccess) {
+            rssResult.map { sortTorrents(it, params) }
+        } else {
+            htmlResult
+        }
     }
 
     suspend fun fetchTorrentPageData(

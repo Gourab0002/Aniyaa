@@ -427,19 +427,15 @@ fun SearchScreen(
                 defaultCategory = prefs.defaultCategory(uiState.searchParams.site),
                 defaultSortField = com.nyaa.aniyaa.data.model.sortFieldByValue(prefs.defaultSortFieldValue(uiState.searchParams.site)),
                 defaultSortOrder = com.nyaa.aniyaa.data.model.sortOrderByValue(prefs.defaultSortOrderValue(uiState.searchParams.site)),
-                onCategoryChange = viewModel::updateCategory,
-                onFilterChange = viewModel::updateFilter,
-                onSortFieldChange = viewModel::updateSortField,
-                onSortOrderChange = viewModel::updateSortOrder,
                 onReset = viewModel::resetFilters,
                 onSaveSearch = {
                     showFilterSheet = false
                     showSaveDialog = true
                 },
-                onApply = {
+                onApply = { category, filter, sortField, sortOrder ->
+                    viewModel.applyFilters(category, filter, sortField, sortOrder)
                     scope.launch { sheetState.hide() }
                         .invokeOnCompletion { showFilterSheet = false }
-                    viewModel.search()
                 }
             )
         }
@@ -708,13 +704,9 @@ fun FilterBottomSheetContent(
     defaultCategory: Category = categories.first(),
     defaultSortField: SortField = SortField.DATE,
     defaultSortOrder: SortOrder = SortOrder.DESC,
-    onCategoryChange: (Category) -> Unit,
-    onFilterChange: (FilterOption) -> Unit,
-    onSortFieldChange: (SortField) -> Unit,
-    onSortOrderChange: (SortOrder) -> Unit,
     onReset: () -> Unit,
     onSaveSearch: () -> Unit = {},
-    onApply: () -> Unit
+    onApply: (Category, FilterOption, SortField, SortOrder) -> Unit
 ) {
     var tempCategory by remember(key1 = searchParams) { mutableStateOf(searchParams.category) }
     var tempFilter by remember(key1 = searchParams) { mutableStateOf(searchParams.filter) }
@@ -878,11 +870,7 @@ fun FilterBottomSheetContent(
             ) { Text("Reset", fontWeight = FontWeight.SemiBold) }
             Button(
                 onClick = {
-                    onCategoryChange(tempCategory)
-                    onFilterChange(tempFilter)
-                    onSortFieldChange(tempSortField)
-                    onSortOrderChange(tempSortOrder)
-                    onApply()
+                    onApply(tempCategory, tempFilter, tempSortField, tempSortOrder)
                 },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),

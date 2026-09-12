@@ -15,6 +15,8 @@ import com.nyaa.aniyaa.data.repository.NyaaRepository
 import com.nyaa.aniyaa.data.repository.ViewedListingRepository
 import com.nyaa.aniyaa.ui.lock.AppLockController
 import com.nyaa.aniyaa.work.SavedSearchWorker
+import coil.Coil
+import coil.ImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +48,12 @@ class AniyaaApplication : Application() {
         prefs = AppPreferences(this)
         prefs.applyToSiteConfig()
         AppHttpClient.configure(cacheDir)
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .okHttpClient(AppHttpClient.imageClient)
+                .crossfade(true)
+                .build()
+        )
         database = AppDatabase.get(this)
         bookmarkRepository = BookmarkRepository(database)
         historyRepository = SearchHistoryRepository(database)

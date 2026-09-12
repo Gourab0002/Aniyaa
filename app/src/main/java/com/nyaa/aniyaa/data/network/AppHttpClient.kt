@@ -55,6 +55,19 @@ object AppHttpClient {
         runCatching { instance.cache?.evictAll() }
     }
 
+    val imageClient: OkHttpClient by lazy {
+        instance.newBuilder()
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                    .header("Referer", "https://nyaa.si/")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+    }
+
     fun newRequest(url: String): Request =
         Request.Builder()
             .url(url)

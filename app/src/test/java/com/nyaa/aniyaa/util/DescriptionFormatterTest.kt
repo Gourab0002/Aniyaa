@@ -17,6 +17,21 @@ class DescriptionFormatterTest {
     }
 
     @Test
+    fun imagesIn_findsInlineMarkdownAndBareUrls() {
+        val line = "Source ![one](https://cdn.example.com/1.png) and https://files.catbox.moe/ab.png extra"
+        val images = DescriptionFormatter.imagesIn(line)
+        assertEquals(2, images.size)
+        assertEquals("https://cdn.example.com/1.png", images[0].url)
+        assertEquals("https://files.catbox.moe/ab.png", images[1].url)
+    }
+
+    @Test
+    fun blocks_keepsSingleImageAsGallery() {
+        val blocks = DescriptionFormatter.blocks("Cover\n![art](https://i.imgur.com/abc.jpg)\nDone")
+        assertTrue(blocks.any { it is DescriptionBlock.Gallery && it.images.single().url.contains("imgur") })
+    }
+
+    @Test
     fun blocks_groupsConsecutiveImages() {
         val raw = """
             Intro

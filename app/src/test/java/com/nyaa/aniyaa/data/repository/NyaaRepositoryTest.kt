@@ -141,6 +141,17 @@ class NyaaRepositoryTest {
     }
 
     @Test
+    fun sortTorrents_ordersBySeedersDescending() {
+        val low = makeTorrent("1").copy(seeders = 2)
+        val high = makeTorrent("2").copy(seeders = 40)
+        val sorted = sortTorrents(
+            listOf(low, high),
+            SearchParams(sortField = SortField.SEEDERS, sortOrder = SortOrder.DESC)
+        )
+        assertEquals(listOf("2", "1"), sorted.map { it.id })
+    }
+
+    @Test
     fun looksLikeRss_rejectsHtml() {
         val html = "<!doctype html><html><body>challenge</body></html>".toByteArray()
         assertFalse(looksLikeRss("text/html; charset=utf-8", html))

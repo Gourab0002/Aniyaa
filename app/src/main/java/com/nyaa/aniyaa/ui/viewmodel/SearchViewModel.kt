@@ -97,6 +97,26 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(searchParams = it.searchParams.copy(sortOrder = sortOrder)) }
     }
 
+    fun applyFilters(
+        category: Category,
+        filter: FilterOption,
+        sortField: SortField,
+        sortOrder: SortOrder
+    ) {
+        _uiState.update {
+            it.copy(
+                searchParams = it.searchParams.copy(
+                    category = category,
+                    filter = filter,
+                    sortField = sortField,
+                    sortOrder = sortOrder,
+                    page = 1
+                )
+            )
+        }
+        search(forceNetwork = true)
+    }
+
     fun switchSite(site: CatalogSite) {
         if (site.nsfw && !prefs.sukebeiEnabled) return
         val current = _uiState.value.searchParams.site
@@ -178,15 +198,12 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun resetFilters() {
         val site = _uiState.value.searchParams.site
-        val defaults = SearchParams(
-            query = _query.value,
-            site = site,
+        applyFilters(
             category = prefs.defaultCategory(site),
             filter = FilterOption.ALL,
             sortField = sortFieldByValue(prefs.defaultSortFieldValue(site)),
             sortOrder = sortOrderByValue(prefs.defaultSortOrderValue(site))
         )
-        _uiState.update { it.copy(searchParams = defaults) }
     }
 
     private fun restoreFromCache() {
