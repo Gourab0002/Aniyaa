@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,6 +54,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +96,8 @@ fun SearchHistoryScreen(
     val message by searchHistoryViewModel.message.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val listScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
     var pendingNotifyId by remember { mutableStateOf<Long?>(null) }
     var confirmClearHistory by remember { mutableStateOf(false) }
     var pendingDeleteSaved by remember { mutableStateOf<SavedSearch?>(null) }
@@ -196,6 +200,7 @@ fun SearchHistoryScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(
@@ -217,6 +222,7 @@ fun SearchHistoryScreen(
                         }
                         items(viewed.take(12), key = { "viewed-${it.bookmarkKey()}" }) { torrent ->
                             val dismissState = rememberSwipeToDismissBoxState(
+                                positionalThreshold = { it * 0.45f },
                                 confirmValueChange = { value ->
                                     if (value == SwipeToDismissBoxValue.EndToStart) {
                                         searchHistoryViewModel.removeViewed(torrent)
@@ -228,6 +234,8 @@ fun SearchHistoryScreen(
                             )
                             SwipeToDismissBox(
                                 state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                gesturesEnabled = !listScrolling,
                                 backgroundContent = {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
                                         Surface(
@@ -307,6 +315,7 @@ fun SearchHistoryScreen(
                     }
                     items(history, key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
                         val dismissState = rememberSwipeToDismissBoxState(
+                            positionalThreshold = { it * 0.45f },
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
                                     searchHistoryViewModel.removeEntry(entry)
@@ -318,6 +327,8 @@ fun SearchHistoryScreen(
                         )
                         SwipeToDismissBox(
                             state = dismissState,
+                            enableDismissFromStartToEnd = false,
+                            gesturesEnabled = !listScrolling,
                             backgroundContent = {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
                                     Surface(

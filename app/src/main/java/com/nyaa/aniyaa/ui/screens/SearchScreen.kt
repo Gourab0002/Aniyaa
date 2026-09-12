@@ -1,10 +1,5 @@
 package com.nyaa.aniyaa.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -84,21 +79,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -186,26 +176,8 @@ fun SearchScreen(
     val searchFocused by interactionSource.collectIsFocusedAsState()
     val bookmarkedIds = remember(bookmarks) { bookmarks.map { it.bookmarkKey() }.toSet() }
     var showSukebeiWarning by remember { mutableStateOf(false) }
-    var chromeVisible by remember { mutableStateOf(true) }
-    var previousIndex by remember { mutableIntStateOf(0) }
-    var previousOffset by remember { mutableIntStateOf(0) }
     var selecting by remember { mutableStateOf(false) }
     var selectedKeys by remember { mutableStateOf(setOf<String>()) }
-
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect { (index, offset) ->
-                if (index == 0 && offset < 12) {
-                    chromeVisible = true
-                } else if (index > previousIndex || (index == previousIndex && offset > previousOffset + 12)) {
-                    chromeVisible = false
-                } else if (index < previousIndex || (index == previousIndex && offset < previousOffset - 12)) {
-                    chromeVisible = true
-                }
-                previousIndex = index
-                previousOffset = offset
-            }
-    }
 
     LaunchedEffect(uiState.error, uiState.torrents.isNotEmpty()) {
         val error = uiState.error
@@ -222,10 +194,9 @@ fun SearchScreen(
         }
     }
 
-    LaunchedEffect(uiState.isLoading) {
-        if (!uiState.isLoading && uiState.searchParams.page == 1 && uiState.torrents.isNotEmpty()) {
-            listState.scrollToItem(0)
-        }
+    val searchIdentity = "${uiState.searchParams.site.id}|${uiState.searchParams.query}|${uiState.searchParams.category.value}|${uiState.searchParams.filter.value}|${uiState.searchParams.sortField.value}|${uiState.searchParams.sortOrder.value}"
+    LaunchedEffect(searchIdentity) {
+        listState.scrollToItem(0)
     }
 
     val suggestions = remember(query, history, searchFocused) {
@@ -468,16 +439,12 @@ fun SearchScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                         )
                     }
-                    AnimatedVisibility(
-                        visible = chromeVisible && siteHistory.isNotEmpty(),
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
+                    if (siteHistory.isNotEmpty()) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(siteHistory.take(12), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
+                            items(siteHistory.take(8), key = { "${it.site.id}|${it.query}|${it.timestamp}" }) { entry ->
                                 FilterChip(
                                     selected = false,
                                     onClick = { viewModel.applyHistory(entry) },
@@ -825,73 +792,24 @@ private fun SearchResultsBody(
                         key = { index, torrent -> torrent.listKey(index) },
                         contentType = { _, _ -> "torrent" }
                     ) { _, torrent ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                when (value) {
-                                    SwipeToDismissBoxValue.StartToEnd -> {
-                                        onMagnet(torrent)
-                                        false
-                                    }
-                                    SwipeToDismissBoxValue.EndToStart -> {
-                                        onToggleBookmark(torrent)
-                                        false
-                                    }
-                                    else -> false
-                                }
-                            }
+                        TorrentCard(
+                            torrent = torrent,
+                            onClick = {
+                                if (selecting) onToggleSelect(torrent) else onTorrentClick(torrent)
+                            },
+                            isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
+                            selected = torrent.bookmarkKey() in selectedKeys,
+                            compact = compact,
+                            showSiteBadge = false,
+                            onMagnet = { onMagnet(torrent) },
+                            onCopyMagnet = { onCopyMagnet(torrent) },
+                            onToggleBookmark = { onToggleBookmark(torrent) },
+                            onCopyTitle = { onCopyTitle(torrent) },
+                            onShare = { onShare(torrent) },
+                            onFollow = onFollow,
+                            onSearchQuery = onSearchQuery,
+                            onOpenUser = onOpenUser
                         )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = {
-                                val color = when (dismissState.dismissDirection) {
-                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
-                                    else -> MaterialTheme.colorScheme.surface
-                                }
-                                val alignment = when (dismissState.dismissDirection) {
-                                    SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                                    else -> Alignment.CenterEnd
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 8.dp),
-                                    contentAlignment = alignment
-                                ) {
-                                    Surface(shape = CircleShape, color = color) {
-                                        Icon(
-                                            imageVector = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                                Icons.Default.Link
-                                            } else {
-                                                Icons.Default.Bookmark
-                                            },
-                                            contentDescription = null,
-                                            modifier = Modifier.padding(12.dp),
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        ) {
-                            TorrentCard(
-                                torrent = torrent,
-                                onClick = {
-                                    if (selecting) onToggleSelect(torrent) else onTorrentClick(torrent)
-                                },
-                                isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
-                                selected = torrent.bookmarkKey() in selectedKeys,
-                                compact = compact,
-                                showSiteBadge = false,
-                                onMagnet = { onMagnet(torrent) },
-                                onCopyMagnet = { onCopyMagnet(torrent) },
-                                onToggleBookmark = { onToggleBookmark(torrent) },
-                                onCopyTitle = { onCopyTitle(torrent) },
-                                onShare = { onShare(torrent) },
-                                onFollow = onFollow,
-                                onSearchQuery = onSearchQuery,
-                                onOpenUser = onOpenUser
-                            )
-                        }
                     }
                     if (uiState.isLoadingMore) {
                         item(key = "loading-more", contentType = "loading") {

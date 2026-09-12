@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.text.method.LinkMovementMethod
+import android.view.MotionEvent
 import android.widget.TextView
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -708,6 +709,12 @@ private fun MarkdownContent(
         factory = { ctx ->
             TextView(ctx).apply {
                 movementMethod = LinkMovementMethod.getInstance()
+                setOnTouchListener { view, event ->
+                    if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    false
+                }
             }
         },
         modifier = modifier.fillMaxWidth(),

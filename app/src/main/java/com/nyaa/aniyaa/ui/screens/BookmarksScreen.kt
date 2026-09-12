@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +42,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,6 +89,8 @@ fun BookmarksScreen(
     val context = LocalContext.current
     val prefs = remember { AppPreferences(context) }
     var sortMenu by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val listScrolling by remember { derivedStateOf { listState.isScrollInProgress } }
 
     LaunchedEffect(message) {
         val text = message
@@ -223,6 +227,7 @@ fun BookmarksScreen(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(
@@ -238,6 +243,7 @@ fun BookmarksScreen(
                             contentType = { _, _ -> "bookmark" }
                         ) { _, torrent ->
                             val dismissState = rememberSwipeToDismissBoxState(
+                                positionalThreshold = { it * 0.45f },
                                 confirmValueChange = { value ->
                                     if (value == SwipeToDismissBoxValue.EndToStart) {
                                         bookmarkViewModel.removeBookmark(torrent)
@@ -249,6 +255,8 @@ fun BookmarksScreen(
                             )
                             SwipeToDismissBox(
                                 state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                gesturesEnabled = !listScrolling,
                                 backgroundContent = {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
                                         Surface(

@@ -23,10 +23,6 @@ object HighRefreshRate {
         params.preferredDisplayModeId = mode.modeId
         activity.window.attributes = params
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            activity.window.setPreferMinimalPostProcessing(true)
-        }
-
         val decor = activity.window.decorView
         requestHighFrameRate(decor)
         if (!decor.isAttachedToWindow) {
