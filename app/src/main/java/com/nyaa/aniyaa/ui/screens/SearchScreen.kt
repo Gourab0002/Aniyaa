@@ -77,6 +77,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -148,6 +149,7 @@ private const val LOAD_MORE_BUFFER = 3
 @Composable
 fun SearchScreen(
     onTorrentClick: (Torrent) -> Unit,
+    onOpenSettings: () -> Unit = {},
     searchViewModel: SearchViewModel = viewModel(),
     searchHistoryViewModel: SearchHistoryViewModel = viewModel(),
     bookmarkViewModel: BookmarkViewModel = viewModel(),
@@ -187,6 +189,8 @@ fun SearchScreen(
     var chromeVisible by remember { mutableStateOf(true) }
     var previousIndex by remember { mutableIntStateOf(0) }
     var previousOffset by remember { mutableIntStateOf(0) }
+    var selecting by remember { mutableStateOf(false) }
+    var selectedKeys by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
@@ -208,6 +212,13 @@ fun SearchScreen(
         if (error != null && uiState.torrents.isNotEmpty()) {
             snackbarHostState.showSnackbar(error)
             viewModel.clearError()
+        }
+    }
+    LaunchedEffect(uiState.notice) {
+        val notice = uiState.notice
+        if (notice != null) {
+            snackbarHostState.showSnackbar(notice)
+            viewModel.clearNotice()
         }
     }
 
@@ -270,11 +281,16 @@ fun SearchScreen(
                             }
                         },
                         leadingIcon = {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            IconButton(onClick = {
+                                keyboardController?.hide()
+                                viewModel.search()
+                            }) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         },
                         shape = RoundedCornerShape(28.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -285,6 +301,18 @@ fun SearchScreen(
                             cursorColor = MaterialTheme.colorScheme.primary
                         )
                     )
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        IconButton(onClick = {
+                            followSave = null
+                            showSaveDialog = true
+                        }) {
+                            Icon(
+                                Icons.Default.BookmarkBorder,
+                                contentDescription = "Save this search",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                         IconButton(onClick = { showFilterSheet = true }) {
                             BadgedBox(
@@ -364,12 +392,7 @@ fun SearchScreen(
             }
             val siteHistory = history.filter { it.site == uiState.searchParams.site && it.query.isNotBlank() }
             val filterCaption = uiState.searchParams.activeFilterCaption()
-            AnimatedVisibility(
-                visible = chromeVisible,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Column {
+            Column {
                     val primaryCategories = uiState.searchParams.site.primaryCategories
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -425,6 +448,17 @@ fun SearchScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
                         }
+                        item {
+                            FilterChip(
+                                selected = selecting,
+                                onClick = {
+                                    selecting = !selecting
+                                    if (!selecting) selectedKeys = emptySet()
+                                },
+                                label = { Text(if (selecting) "Done" else "Select") },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
                     }
                     if (filterCaption.isNotBlank()) {
                         Text(
@@ -434,7 +468,11 @@ fun SearchScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                         )
                     }
-                    if (siteHistory.isNotEmpty()) {
+                    AnimatedVisibility(
+                        visible = chromeVisible && siteHistory.isNotEmpty(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -455,6 +493,34 @@ fun SearchScreen(
                             }
                         }
                     }
+            }
+            if (selecting && selectedKeys.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val selected = uiState.torrents.filter { it.bookmarkKey() in selectedKeys }
+                            selected.forEach { torrent ->
+                                openMagnet(context, torrent.resolvedMagnet(), prefs.preferredTorrentPackage)
+                            }
+                            scope.launch { snackbarHostState.showSnackbar("Opened ${selected.size} magnet${if (selected.size == 1) "" else "s"}") }
+                            selecting = false
+                            selectedKeys = emptySet()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Open magnets (${selectedKeys.size})") }
+                    OutlinedButton(
+                        onClick = {
+                            val selected = uiState.torrents.filter { it.bookmarkKey() in selectedKeys }
+                            val text = selected.joinToString("\n\n") { torrentShareText(it) }
+                            copyText(context, "Magnets", text)
+                            scope.launch { snackbarHostState.showSnackbar("Copied ${selected.size} listing${if (selected.size == 1) "" else "s"}") }
+                        }
+                    ) { Text("Copy") }
                 }
             }
             SearchResultsBody(
@@ -462,8 +528,16 @@ fun SearchScreen(
                 listState = listState,
                 bottomPadding = bottomPadding,
                 bookmarkedIds = bookmarkedIds,
+                selecting = selecting,
+                selectedKeys = selectedKeys,
+                compact = prefs.compactCards,
+                onToggleSelect = { torrent ->
+                    val key = torrent.bookmarkKey()
+                    selectedKeys = if (key in selectedKeys) selectedKeys - key else selectedKeys + key
+                },
                 onTorrentClick = onTorrentClick,
                 onRetry = { viewModel.search(forceNetwork = true) },
+                onOpenSettings = onOpenSettings,
                 onRefresh = viewModel::refresh,
                 onLoadMore = viewModel::loadNextPage,
                 onMagnet = { torrent ->
@@ -630,8 +704,13 @@ private fun SearchResultsBody(
     listState: LazyListState,
     bottomPadding: Dp,
     bookmarkedIds: Set<String>,
+    selecting: Boolean = false,
+    selectedKeys: Set<String> = emptySet(),
+    compact: Boolean = false,
+    onToggleSelect: (Torrent) -> Unit = {},
     onTorrentClick: (Torrent) -> Unit,
     onRetry: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onMagnet: (Torrent) -> Unit,
@@ -683,6 +762,8 @@ private fun SearchResultsBody(
                     )
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = onRetry) { Text("Retry") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onOpenSettings) { Text("Try a mirror") }
                 }
             }
             uiState.torrents.isEmpty() && uiState.hasSearched -> {
@@ -794,8 +875,12 @@ private fun SearchResultsBody(
                         ) {
                             TorrentCard(
                                 torrent = torrent,
-                                onClick = onTorrentClick,
+                                onClick = {
+                                    if (selecting) onToggleSelect(torrent) else onTorrentClick(torrent)
+                                },
                                 isBookmarked = torrent.bookmarkKey() in bookmarkedIds,
+                                selected = torrent.bookmarkKey() in selectedKeys,
+                                compact = compact,
                                 showSiteBadge = false,
                                 onMagnet = { onMagnet(torrent) },
                                 onCopyMagnet = { onCopyMagnet(torrent) },
@@ -1147,6 +1232,8 @@ fun TorrentCard(
     torrent: Torrent,
     onClick: (Torrent) -> Unit,
     isBookmarked: Boolean = false,
+    selected: Boolean = false,
+    compact: Boolean = false,
     showSiteBadge: Boolean = false,
     onMagnet: (() -> Unit)? = null,
     onCopyMagnet: (() -> Unit)? = null,
@@ -1169,11 +1256,17 @@ fun TorrentCard(
                 onLongClick = { if (hasMenu) menu = true }
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            }
+        ),
         shape = RoundedCornerShape(16.dp)
     ) {
         Box {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(if (compact) 10.dp else 16.dp)) {
             Text(
                 text = torrent.title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -1186,8 +1279,8 @@ fun TorrentCard(
             val parsed = remember(torrent.title) { parseReleaseTitle(torrent.title) }
             val group = parsed.group
             val show = parsed.show
-            if (onSearchQuery != null && (group != null || show != null) ||
-                (onOpenUser != null && torrent.submitter.isNotBlank())
+            if (!compact && (onSearchQuery != null && (group != null || show != null) ||
+                (onOpenUser != null && torrent.submitter.isNotBlank()))
             ) {
                 Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1312,13 +1405,21 @@ fun TorrentCard(
                     Icon(Icons.Default.Download, contentDescription = "Downloads", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(text = formatCount(torrent.downloads), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (torrent.comments > 0) {
+                    Text(
+                        text = "${torrent.comments}c",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 Text(
                     text = remember(torrent.pubDate) { PubDateFormatter.formatRelative(torrent.pubDate) },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            if (onMagnet != null || onCopyMagnet != null || onToggleBookmark != null) {
+            if (!compact && (onMagnet != null || onCopyMagnet != null || onToggleBookmark != null)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,

@@ -139,4 +139,26 @@ class NyaaRepositoryTest {
         assertFalse(url.contains("page=rss"))
         assertTrue(url.contains("q=foo"))
     }
+
+    @Test
+    fun looksLikeRss_rejectsHtml() {
+        val html = "<!doctype html><html><body>challenge</body></html>".toByteArray()
+        assertFalse(looksLikeRss("text/html; charset=utf-8", html))
+        assertFalse(looksLikeRss(null, html))
+    }
+
+    @Test
+    fun looksLikeRss_acceptsXml() {
+        val rss = "<?xml version=\"1.0\"?><rss><channel></channel></rss>".toByteArray()
+        assertTrue(looksLikeRss("application/rss+xml", rss))
+        assertTrue(looksLikeRss(null, rss))
+    }
+
+    @Test
+    fun mirrorCandidates_putsCurrentFirstAndDedupes() {
+        val list = mirrorCandidates(CatalogSite.NYAA, "https://nyaa.si")
+        assertEquals("https://nyaa.si", list.first())
+        assertTrue(list.contains("https://nyaa.iss.one"))
+        assertEquals(list.size, list.distinctBy { it.lowercase() }.size)
+    }
 }

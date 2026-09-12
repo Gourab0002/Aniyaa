@@ -22,7 +22,7 @@ class BackupManager(
     private val viewed: ViewedListingRepository,
     private val prefs: AppPreferences
 ) {
-    suspend fun exportJson(): String {
+    suspend fun exportJson(password: String? = null): String {
         val root = JSONObject()
         root.put("version", 3)
         val bookmarkArray = JSONArray()
@@ -81,13 +81,21 @@ class BackupManager(
                 put("loadLatestOnStart", prefs.loadLatestOnStart)
                 put("savedSearchIntervalHours", prefs.savedSearchIntervalHours)
                 put("lockGraceMs", prefs.lockGraceMs)
+                put("compactCards", prefs.compactCards)
+                put("biometricUnlockEnabled", prefs.biometricUnlockEnabled)
             }
         )
-        return root.toString(2)
+        val plaintext = root.toString(2)
+        return if (!password.isNullOrBlank()) BackupCrypto.encrypt(plaintext, password) else plaintext
     }
 
-    suspend fun importJson(json: String, merge: Boolean = false) {
-        val root = JSONObject(json)
+    suspend fun importJson(json: String, merge: Boolean = false, password: String? = null) {
+        val decrypted = if (BackupCrypto.isEncrypted(json)) {
+            BackupCrypto.decrypt(json, password.orEmpty())
+        } else {
+            json
+        }
+        val root = JSONObject(decrypted)
         val settings = root.optJSONObject("settings")
         val fallbackSite = inferFallbackSite(settings)
 
@@ -172,6 +180,10 @@ class BackupManager(
                 prefs.savedSearchIntervalHours = settings.optInt("savedSearchIntervalHours")
             }
             if (settings.has("lockGraceMs")) prefs.lockGraceMs = settings.optLong("lockGraceMs")
+            if (settings.has("compactCards")) prefs.compactCards = settings.optBoolean("compactCards")
+            if (settings.has("biometricUnlockEnabled")) {
+                prefs.biometricUnlockEnabled = settings.optBoolean("biometricUnlockEnabled")
+            }
         }
     }
 

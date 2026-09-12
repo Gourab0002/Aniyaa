@@ -9,6 +9,7 @@ object SiteConfig {
     private val bases = ConcurrentHashMap<CatalogSite, String>().apply {
         CatalogSite.entries.forEach { put(it, it.defaultBase) }
     }
+    private val sessionBases = ConcurrentHashMap<CatalogSite, String>()
 
     var currentSite: CatalogSite
         get() = currentRef.get()
@@ -21,17 +22,28 @@ object SiteConfig {
 
     fun baseUrl(site: CatalogSite): String = bases[site] ?: site.defaultBase
 
+    fun resolvedBaseUrl(site: CatalogSite): String = sessionBases[site] ?: baseUrl(site)
+
     fun setBaseUrl(site: CatalogSite, url: String) {
         bases[site] = normalize(url, site)
+        sessionBases.remove(site)
+    }
+
+    fun setSessionBaseUrl(site: CatalogSite, url: String) {
+        sessionBases[site] = normalize(url, site)
+    }
+
+    fun clearSessionBaseUrl(site: CatalogSite) {
+        sessionBases.remove(site)
     }
 
     fun normalize(raw: String, site: CatalogSite = currentSite): String {
         val trimmed = raw.trim().trimEnd('/')
         if (trimmed.isBlank()) return site.defaultBase
-        val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            trimmed
-        } else {
-            "https://$trimmed"
+        val withScheme = when {
+            trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("http://") -> "https://${trimmed.removePrefix("http://")}"
+            else -> "https://$trimmed"
         }
         return withScheme.trimEnd('/')
     }
@@ -39,7 +51,7 @@ object SiteConfig {
     fun resolveUrl(pathOrUrl: String, site: CatalogSite = currentSite): String {
         val value = pathOrUrl.trim()
         if (value.isEmpty()) return ""
-        val base = baseUrl(site)
+        val base = resolvedBaseUrl(site)
         return when {
             value.startsWith("http://") || value.startsWith("https://") -> value
             value.startsWith("//") -> "https:$value"

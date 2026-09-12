@@ -17,4 +17,12 @@ class NetworkErrorsTest {
         val message = HttpException(403, "HTTP 403: Forbidden").toUserMessage()
         assertTrue(message.contains("blocked", ignoreCase = true))
     }
+
+    @Test
+    fun failoverWorthy_coversBlocksAndTimeouts() {
+        assertTrue(UnknownHostException("nyaa.si").isFailoverWorthy())
+        assertTrue(HttpException(403, "HTTP 403: Forbidden").isFailoverWorthy())
+        assertTrue(HttpException(503, "HTTP 503: Unavailable").isFailoverWorthy())
+        assertTrue(!HttpException(404, "HTTP 404: Missing").isFailoverWorthy())
+    }
 }

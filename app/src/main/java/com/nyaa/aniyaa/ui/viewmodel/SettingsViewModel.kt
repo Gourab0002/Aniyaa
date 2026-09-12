@@ -76,7 +76,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setSavedSearchIntervalHours(hours: Int) {
         prefs.savedSearchIntervalHours = hours
-        SavedSearchWorker.enqueue(getApplication(), hours, replace = true)
+        viewModelScope.launch {
+            SavedSearchWorker.sync(
+                getApplication(),
+                app.savedSearchRepository.getNotifying().isNotEmpty(),
+                hours
+            )
+        }
         _message.value = "Alerts every ${hours}h"
     }
 
@@ -127,12 +133,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (enabled) {
             prefs.hideScreenshots = true
             app.lockController.lock()
+            _message.value = "Screenshot blocking is on while the app is locked"
+        } else {
+            app.lockController.unlock()
         }
     }
 
     fun setPin(pin: String) {
         prefs.setPin(pin)
         _message.value = "PIN saved"
+    }
+
+    fun clearPin() {
+        prefs.clearPin()
+        app.lockController.unlock()
+        _message.value = "PIN removed"
+    }
+
+    fun setCompactCards(enabled: Boolean) {
+        prefs.compactCards = enabled
+    }
+
+    fun setBiometricUnlockEnabled(enabled: Boolean) {
+        prefs.biometricUnlockEnabled = enabled
     }
 
     fun setHideScreenshots(enabled: Boolean) {
@@ -202,7 +225,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    suspend fun exportBackup(): String = withContext(Dispatchers.IO) { backupManager.exportJson() }
+    suspend fun exportBackup(password: String? = null): String =
+        withContext(Dispatchers.IO) { backupManager.exportJson(password) }
 
     fun clearNetworkCache() {
         com.nyaa.aniyaa.data.network.AppHttpClient.clearCache()
@@ -226,11 +250,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun importBackup(json: String, merge: Boolean = false) {
+    fun importBackup(json: String, merge: Boolean = false, password: String? = null) {
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { backupManager.importJson(json, merge) }
-                SavedSearchWorker.enqueue(getApplication(), replace = true)
+                withContext(Dispatchers.IO) { backupManager.importJson(json, merge, password) }
+                SavedSearchWorker.sync(getApplication(), app.savedSearchRepository.getNotifying().isNotEmpty())
                 _message.value = if (merge) "Backup merged" else "Backup restored"
             } catch (e: Exception) {
                 _message.value = e.message ?: "Could not restore backup"

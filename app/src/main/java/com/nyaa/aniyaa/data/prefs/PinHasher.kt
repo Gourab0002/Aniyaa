@@ -45,6 +45,15 @@ object PinHasher {
         }
     }
 
+    fun matches(pin: String, salt: ByteArray, storedHex: String, algorithm: String): Boolean {
+        val computed = hash(pin, salt, algorithm).fromHex()
+        val stored = storedHex.fromHex()
+        if (computed.isEmpty() || stored.isEmpty() || computed.size != stored.size) {
+            return false
+        }
+        return MessageDigest.isEqual(computed, stored)
+    }
+
     fun lockoutMillis(failures: Int): Long {
         if (failures < 5) return 0L
         val steps = (failures - 4).coerceAtMost(5)

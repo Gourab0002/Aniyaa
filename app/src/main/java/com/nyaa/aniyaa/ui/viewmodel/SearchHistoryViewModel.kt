@@ -8,9 +8,12 @@ import com.nyaa.aniyaa.data.model.SavedSearch
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.work.SavedSearchAlerts
 import com.nyaa.aniyaa.work.SavedSearchWorker
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,6 +32,13 @@ class SearchHistoryViewModel(application: Application) : AndroidViewModel(applic
 
     val viewed: StateFlow<List<Torrent>> = viewedRepository.observe()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun consumeMessage() {
+        _message.value = null
+    }
 
     fun addEntry(query: String) {
         if (query.isBlank()) return
@@ -50,16 +60,51 @@ class SearchHistoryViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun deleteSavedSearch(id: Long) {
-        viewModelScope.launch { savedSearchRepository.delete(id) }
+        viewModelScope.launch {
+            savedSearchRepository.delete(id)
+            syncAlerts()
+        }
+    }
+
+    fun renameSavedSearch(search: SavedSearch, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch { savedSearchRepository.update(search.copy(name = trimmed)) }
     }
 
     fun toggleNotify(search: SavedSearch) {
         viewModelScope.launch {
             savedSearchRepository.update(search.copy(notify = !search.notify))
-            if (!search.notify) {
-                SavedSearchWorker.enqueue(getApplication(), replace = true)
+            syncAlerts()
+        }
+    }
+
+    fun checkSavedSearchNow(search: SavedSearch) {
+        viewModelScope.launch {
+            val result = app.nyaaRepository.search(search.toSearchParams(), forceNetwork = true)
+            val torrents = result.getOrNull()
+            if (torrents == null) {
+                _message.value = result.exceptionOrNull()?.message ?: "Could not check this search"
+                return@launch
+            }
+            val ids = torrents.map { it.id }.filter { it.isNotBlank() }
+            val newIds = SavedSearchAlerts.newIds(ids, search.lastSeenIds)
+            savedSearchRepository.update(
+                search.copy(
+                    lastSeenIds = SavedSearchAlerts.storeIds(ids),
+                    lastCheckedAt = System.currentTimeMillis()
+                )
+            )
+            _message.value = if (newIds.isEmpty()) {
+                "No new results for ${search.displayName()}"
+            } else {
+                "${newIds.size} new listing${if (newIds.size == 1) "" else "s"} for ${search.displayName()}"
             }
         }
+    }
+
+    private suspend fun syncAlerts() {
+        SavedSearchWorker.sync(getApplication(), savedSearchRepository.getNotifying().isNotEmpty())
     }
 
     fun recordViewed(torrent: Torrent) {

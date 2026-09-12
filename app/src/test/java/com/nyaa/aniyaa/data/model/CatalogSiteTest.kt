@@ -23,6 +23,8 @@ class CatalogSiteTest {
 
     @Test
     fun categories_differBySite() {
+        assertTrue(CatalogSite.NYAA.categories.any { it.value == "2_1" })
+        assertTrue(CatalogSite.NYAA.categories.any { it.value == "6_2" })
         assertTrue(CatalogSite.NYAA.categories.any { it.displayName == "Anime" })
         assertTrue(CatalogSite.SUKEBEI.categories.any { it.displayName == "Art" })
         assertFalse(CatalogSite.NYAA.categories.any { it.displayName == "Art" })

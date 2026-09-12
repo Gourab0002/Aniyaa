@@ -26,17 +26,23 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwipeToDismissBox
@@ -46,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,7 +70,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nyaa.aniyaa.data.model.SavedSearch
 import com.nyaa.aniyaa.data.model.SearchHistoryEntry
 import com.nyaa.aniyaa.data.model.Torrent
+import com.nyaa.aniyaa.data.repository.buildSearchUrl
 import com.nyaa.aniyaa.ui.viewmodel.SearchHistoryViewModel
+import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.hasNotificationPermission
 import com.nyaa.aniyaa.util.prepareSavedSearchAlerts
 import java.text.SimpleDateFormat
@@ -82,10 +91,21 @@ fun SearchHistoryScreen(
     val history by searchHistoryViewModel.history.collectAsStateWithLifecycle()
     val saved by searchHistoryViewModel.savedSearches.collectAsStateWithLifecycle()
     val viewed by searchHistoryViewModel.viewed.collectAsStateWithLifecycle()
+    val message by searchHistoryViewModel.message.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     var pendingNotifyId by remember { mutableStateOf<Long?>(null) }
     var confirmClearHistory by remember { mutableStateOf(false) }
     var pendingDeleteSaved by remember { mutableStateOf<SavedSearch?>(null) }
+    var renaming by remember { mutableStateOf<SavedSearch?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    LaunchedEffect(message) {
+        val text = message
+        if (text != null) {
+            snackbarHostState.showSnackbar(text)
+            searchHistoryViewModel.consumeMessage()
+        }
+    }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val id = pendingNotifyId
         pendingNotifyId = null
@@ -104,6 +124,15 @@ fun SearchHistoryScreen(
                     Text("Search History", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 },
                 actions = {
+                    if (viewed.isNotEmpty()) {
+                        IconButton(onClick = { searchHistoryViewModel.clearViewed() }) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = "Clear viewed listings",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     if (history.isNotEmpty()) {
                         IconButton(onClick = { confirmClearHistory = true }) {
                             Icon(
@@ -117,6 +146,7 @@ fun SearchHistoryScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Box(
@@ -186,11 +216,42 @@ fun SearchHistoryScreen(
                             )
                         }
                         items(viewed.take(12), key = { "viewed-${it.bookmarkKey()}" }) { torrent ->
-                            TorrentCard(
-                                torrent = torrent,
-                                onClick = onTorrentClick,
-                                showSiteBadge = true
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    if (value == SwipeToDismissBoxValue.EndToStart) {
+                                        searchHistoryViewModel.removeViewed(torrent)
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
                             )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                backgroundContent = {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.errorContainer,
+                                            modifier = Modifier.padding(end = 16.dp)
+                                        ) {
+                                            IconButton(onClick = { searchHistoryViewModel.removeViewed(torrent) }) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Remove viewed listing",
+                                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            ) {
+                                TorrentCard(
+                                    torrent = torrent,
+                                    onClick = onTorrentClick,
+                                    showSiteBadge = true
+                                )
+                            }
                         }
                     }
                     if (saved.isNotEmpty()) {
@@ -207,6 +268,14 @@ fun SearchHistoryScreen(
                             SavedSearchCard(
                                 search = search,
                                 onClick = { onSavedSearchClick(search) },
+                                onCopyRss = {
+                                    copyText(context, "RSS", buildSearchUrl(search.toSearchParams()))
+                                },
+                                onCheckNow = { searchHistoryViewModel.checkSavedSearchNow(search) },
+                                onRename = {
+                                    renaming = search
+                                    renameValue = search.displayName()
+                                },
                                 onToggleNotify = {
                                     if (search.notify) {
                                         searchHistoryViewModel.toggleNotify(search)
@@ -306,15 +375,41 @@ fun SearchHistoryScreen(
             dismissButton = { TextButton(onClick = { pendingDeleteSaved = null }) { Text("Cancel") } }
         )
     }
+    val renameTarget = renaming
+    if (renameTarget != null) {
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename saved search") },
+            text = {
+                OutlinedTextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    label = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    searchHistoryViewModel.renameSavedSearch(renameTarget, renameValue)
+                    renaming = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } }
+        )
+    }
 }
 
 @Composable
 private fun SavedSearchCard(
     search: SavedSearch,
     onClick: () -> Unit,
+    onCopyRss: () -> Unit,
+    onCheckNow: () -> Unit,
+    onRename: () -> Unit,
     onToggleNotify: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var menu by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,6 +448,13 @@ private fun SavedSearchCard(
                 if (summary.isNotBlank()) {
                     Text(text = summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                if (search.lastCheckedAt > 0L) {
+                    Text(
+                        text = "Checked ${formatTimestamp(search.lastCheckedAt)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
             IconButton(onClick = onToggleNotify) {
                 Icon(
@@ -361,8 +463,16 @@ private fun SavedSearchCard(
                     tint = if (search.notify) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete saved search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box {
+                IconButton(onClick = { menu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Copy RSS URL") }, onClick = { menu = false; onCopyRss() })
+                    DropdownMenuItem(text = { Text("Check now") }, onClick = { menu = false; onCheckNow() })
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
+                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; onDelete() })
+                }
             }
         }
     }

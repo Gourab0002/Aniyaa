@@ -2,6 +2,7 @@ package com.nyaa.aniyaa.data.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -57,11 +58,56 @@ object UpdateInstaller {
             file.delete()
             throw IllegalStateException("Downloaded update was empty")
         }
+        if (!signingMatchesInstalled(context, file)) {
+            file.delete()
+            throw IllegalStateException("Update signature does not match the installed app")
+        }
         file
+    }
+
+    fun signingMatchesInstalled(context: Context, file: File): Boolean {
+        val archiveSigs = packageSignatures(context, archivePath = file.absolutePath) ?: return false
+        val installedSigs = packageSignatures(context, packageName = context.packageName) ?: return false
+        return archiveSigs.any { it in installedSigs }
+    }
+
+    private fun packageSignatures(
+        context: Context,
+        archivePath: String? = null,
+        packageName: String? = null
+    ): Set<String>? {
+        val pm = context.packageManager
+        return try {
+            if (Build.VERSION.SDK_INT >= 28) {
+                val info = if (archivePath != null) {
+                    pm.getPackageArchiveInfo(archivePath, PackageManager.GET_SIGNING_CERTIFICATES)
+                } else {
+                    pm.getPackageInfo(packageName!!, PackageManager.GET_SIGNING_CERTIFICATES)
+                }
+                val signers = info?.signingInfo?.apkContentsSigners ?: info?.signingInfo?.signingCertificateHistory
+                signers?.map { it.toCharsString() }?.toSet()
+            } else {
+                @Suppress("DEPRECATION")
+                val info = if (archivePath != null) {
+                    pm.getPackageArchiveInfo(archivePath, PackageManager.GET_SIGNATURES)
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageInfo(packageName!!, PackageManager.GET_SIGNATURES)
+                }
+                @Suppress("DEPRECATION")
+                info?.signatures?.map { it.toCharsString() }?.toSet()
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun install(context: Context, file: File): String? {
         if (!file.exists()) return "Update file missing"
+        if (!signingMatchesInstalled(context, file)) {
+            file.delete()
+            return "Update signature does not match the installed app"
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canInstallPackages(context)) {
             requestInstallPermission(context)
             return "Allow Aniyaa to install updates, then tap Install again"

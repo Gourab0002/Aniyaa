@@ -35,6 +35,7 @@ data class SearchUiState(
     val isLoadingMore: Boolean = false,
     val canLoadMore: Boolean = true,
     val error: String? = null,
+    val notice: String? = null,
     val searchParams: SearchParams = SearchParams(),
     val hasSearched: Boolean = false
 )
@@ -52,6 +53,9 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _uiState = MutableStateFlow(SearchUiState(searchParams = prefs.defaultSearchParams()))
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+
+    private val _pendingNsfwParams = MutableStateFlow<SearchParams?>(null)
+    val pendingNsfwParams: StateFlow<SearchParams?> = _pendingNsfwParams.asStateFlow()
 
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null
@@ -132,12 +136,28 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun applyParams(params: SearchParams, recordHistory: Boolean = true) {
         val valid = params.withValidCategory()
+        if (valid.site.nsfw && !prefs.sukebeiEnabled) {
+            _pendingNsfwParams.value = valid
+            return
+        }
+        applyParamsConfirmed(valid, recordHistory)
+    }
+
+    fun confirmPendingNsfw() {
+        val pending = _pendingNsfwParams.value ?: return
+        _pendingNsfwParams.value = null
+        prefs.sukebeiEnabled = true
+        applyParamsConfirmed(pending, recordHistory = true)
+    }
+
+    fun dismissPendingNsfw() {
+        _pendingNsfwParams.value = null
+    }
+
+    private fun applyParamsConfirmed(valid: SearchParams, recordHistory: Boolean) {
         val current = _uiState.value.searchParams.site
         if (valid.site != current) {
             siteSnapshots[current] = SiteSnapshot(_query.value, _uiState.value)
-        }
-        if (valid.site.nsfw && !prefs.sukebeiEnabled) {
-            prefs.sukebeiEnabled = true
         }
         if (valid.site != prefs.currentSite) {
             prefs.currentSite = valid.site
@@ -253,6 +273,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             result.fold(
                 onSuccess = { torrents ->
                     val (merged, canLoadMore) = mergeSearchPages(emptyList(), torrents, replace = true)
+                    val used = SiteConfig.resolvedBaseUrl(params.site)
+                    val configured = prefs.baseUrl(params.site)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -260,7 +282,12 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                             torrents = merged,
                             hasSearched = true,
                             canLoadMore = canLoadMore,
-                            error = null
+                            error = null,
+                            notice = if (!used.equals(configured, ignoreCase = true)) {
+                                "Using $used"
+                            } else {
+                                null
+                            }
                         )
                     }
                 },
@@ -335,6 +362,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(error = null) }
     }
 
+    fun clearNotice() {
+        _uiState.update { it.copy(notice = null) }
+    }
+
     fun torrentByNavId(navId: String, site: CatalogSite? = null): Torrent? =
         _uiState.value.torrents.find {
             it.matchesNavId(navId) && (site == null || it.site == site)
@@ -347,9 +378,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     suspend fun saveSearch(params: SearchParams, name: String, notify: Boolean): Long {
         val id = savedSearchRepository.add(params.toSavedSearch(name, notify))
-        if (notify) {
-            SavedSearchWorker.enqueue(getApplication(), replace = true)
-        }
+        SavedSearchWorker.sync(getApplication(), savedSearchRepository.getNotifying().isNotEmpty())
         return id
     }
 }

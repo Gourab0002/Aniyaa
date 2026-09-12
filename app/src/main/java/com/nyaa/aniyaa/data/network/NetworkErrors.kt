@@ -5,6 +5,19 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
+fun Throwable.isFailoverWorthy(): Boolean {
+    val http = httpStatusCode()
+    return when {
+        this is UnknownHostException || cause is UnknownHostException -> true
+        this is SocketTimeoutException || cause is SocketTimeoutException -> true
+        this is SSLException || cause is SSLException -> true
+        http == 403 || http == 429 || http == 451 -> true
+        http != null && http >= 500 -> true
+        this is IOException -> http != 404
+        else -> cause?.isFailoverWorthy() == true
+    }
+}
+
 fun Throwable.toUserMessage(): String {
     val httpCode = httpStatusCode()
     return when {

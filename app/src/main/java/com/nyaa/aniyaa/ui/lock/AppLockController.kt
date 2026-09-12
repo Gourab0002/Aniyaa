@@ -1,11 +1,12 @@
 package com.nyaa.aniyaa.ui.lock
 
+import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class AppLockController(
-    private val elapsedRealtime: () -> Long = { System.currentTimeMillis() }
+    private val elapsedRealtime: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     private val _locked = MutableStateFlow(false)
     val locked: StateFlow<Boolean> = _locked.asStateFlow()

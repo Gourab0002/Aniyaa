@@ -26,7 +26,7 @@ class BookmarkRepository(private val database: AppDatabase) {
     }
 
     suspend fun update(torrent: Torrent) {
-        val existing = dao.getAll().find { it.identity == torrent.bookmarkKey() }
+        val existing = dao.getByIdentity(torrent.bookmarkKey())
         dao.upsert(torrent.withMagnet().toBookmarkEntity(addedAt = existing?.addedAt ?: torrent.addedAt))
     }
 

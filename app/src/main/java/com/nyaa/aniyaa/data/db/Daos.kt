@@ -15,6 +15,9 @@ interface BookmarkDao {
     @Query("SELECT * FROM bookmarks ORDER BY addedAt DESC")
     suspend fun getAll(): List<BookmarkEntity>
 
+    @Query("SELECT * FROM bookmarks WHERE identity = :identity LIMIT 1")
+    suspend fun getByIdentity(identity: String): BookmarkEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: BookmarkEntity)
 
@@ -47,7 +50,7 @@ interface HistoryDao {
 
     @Query(
         "DELETE FROM search_history WHERE site = :site AND id NOT IN " +
-            "(SELECT id FROM search_history WHERE site = :site ORDER BY timestamp DESC LIMIT :keep)"
+            "(SELECT id FROM (SELECT id FROM search_history WHERE site = :site ORDER BY timestamp DESC LIMIT :keep))"
     )
     suspend fun trim(site: String, keep: Int)
 
@@ -101,7 +104,7 @@ interface ViewedListingDao {
 
     @Query(
         "DELETE FROM viewed_listings WHERE identity NOT IN " +
-            "(SELECT identity FROM viewed_listings ORDER BY viewedAt DESC LIMIT :keep)"
+            "(SELECT identity FROM (SELECT identity FROM viewed_listings ORDER BY viewedAt DESC LIMIT :keep))"
     )
     suspend fun trim(keep: Int)
 

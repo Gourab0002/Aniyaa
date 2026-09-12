@@ -79,12 +79,23 @@ val NYAA_CATEGORIES = listOf(
     Category("1_3", "Anime - Non-English"),
     Category("1_4", "Anime - Raw"),
     Category("2_0", "Audio"),
+    Category("2_1", "Audio - Lossless"),
+    Category("2_2", "Audio - Lossy"),
     Category("3_0", "Literature"),
+    Category("3_1", "Literature - English"),
+    Category("3_2", "Literature - Non-English"),
+    Category("3_3", "Literature - Raw"),
     Category("4_0", "Live Action"),
     Category("4_1", "Live Action - English"),
+    Category("4_2", "Live Action - Idol/PV"),
+    Category("4_3", "Live Action - Non-English"),
     Category("4_4", "Live Action - Raw"),
     Category("5_0", "Pictures"),
-    Category("6_0", "Software")
+    Category("5_1", "Pictures - Graphics"),
+    Category("5_2", "Pictures - Photos"),
+    Category("6_0", "Software"),
+    Category("6_1", "Software - Applications"),
+    Category("6_2", "Software - Games")
 )
 
 val SUKEBEI_CATEGORIES = listOf(

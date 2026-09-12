@@ -125,13 +125,17 @@ fun SettingsScreen(
     var loadLatestOnStart by remember { mutableStateOf(prefs.loadLatestOnStart) }
     var alertHours by remember { mutableStateOf(prefs.savedSearchIntervalHours) }
     var lockGraceMs by remember { mutableStateOf(prefs.lockGraceMs) }
+    var biometricUnlock by remember { mutableStateOf(prefs.biometricUnlockEnabled) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+    var backupPassword by remember { mutableStateOf("") }
+    var importPassword by remember { mutableStateOf("") }
+    var pinConfirm by remember { mutableStateOf("") }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             scope.launch {
                 try {
-                    val json = settingsViewModel.exportBackup()
+                    val json = settingsViewModel.exportBackup(backupPassword.takeIf { it.isNotBlank() })
                     context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                     snackbarHostState.showSnackbar("Backup exported")
                 } catch (e: Exception) {
@@ -248,6 +252,15 @@ fun SettingsScreen(
                         label = { Text(mode.displayName) }
                     )
                 }
+            }
+            var compactCards by remember { mutableStateOf(prefs.compactCards) }
+            SettingsSwitchRow(
+                "Compact result cards",
+                "Show denser search results with fewer action buttons",
+                compactCards
+            ) { enabled ->
+                compactCards = enabled
+                settingsViewModel.setCompactCards(enabled)
             }
 
             Spacer(Modifier.height(28.dp))
@@ -431,6 +444,21 @@ fun SettingsScreen(
                 }
             }
             TextButton(onClick = { showPinDialog = true }) { Text(if (prefs.hasPin) "Change PIN" else "Set PIN") }
+            if (prefs.hasPin) {
+                TextButton(onClick = {
+                    settingsViewModel.clearPin()
+                    lockEnabled = false
+                    onPrivacyFlagsChanged()
+                }) { Text("Remove PIN") }
+            }
+            SettingsSwitchRow(
+                "Unlock with biometrics",
+                "Use fingerprint or face unlock when the device supports strong biometrics",
+                biometricUnlock
+            ) { enabled ->
+                biometricUnlock = enabled
+                settingsViewModel.setBiometricUnlockEnabled(enabled)
+            }
             Text("Lock delay", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -486,7 +514,16 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(28.dp))
             SectionLabel("Backup")
-            Text("Export bookmarks, history, saved searches, and settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Text("Export bookmarks, history, saved searches, and settings. Optional password encrypts the file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = backupPassword,
+                onValueChange = { backupPassword = it },
+                label = { Text("Export password (optional)") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { exportLauncher.launch("aniyaa-backup.json") }) { Text("Export") }
@@ -515,12 +552,33 @@ fun SettingsScreen(
                 AlertDialog(
                     onDismissRequest = { pendingImportJson = null },
                     title = { Text("Restore backup") },
-                    text = { Text("Merge keeps existing bookmarks and searches. Replace overwrites everything in the backup.") },
+                    text = {
+                        Column {
+                            Text("Merge keeps existing bookmarks and searches. Replace overwrites everything in the backup.")
+                            if (com.nyaa.aniyaa.data.backup.BackupCrypto.isEncrypted(pendingImportJson.orEmpty())) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = importPassword,
+                                    onValueChange = { importPassword = it },
+                                    label = { Text("Backup password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true
+                                )
+                            }
+                        }
+                    },
                     confirmButton = {
                         TextButton(onClick = {
                             val json = pendingImportJson
                             pendingImportJson = null
-                            if (json != null) settingsViewModel.importBackup(json, merge = true)
+                            if (json != null) {
+                                settingsViewModel.importBackup(
+                                    json,
+                                    merge = true,
+                                    password = importPassword.takeIf { it.isNotBlank() }
+                                )
+                            }
+                            importPassword = ""
                         }) { Text("Merge") }
                     },
                     dismissButton = {
@@ -528,9 +586,19 @@ fun SettingsScreen(
                             TextButton(onClick = {
                                 val json = pendingImportJson
                                 pendingImportJson = null
-                                if (json != null) settingsViewModel.importBackup(json, merge = false)
+                                if (json != null) {
+                                    settingsViewModel.importBackup(
+                                        json,
+                                        merge = false,
+                                        password = importPassword.takeIf { it.isNotBlank() }
+                                    )
+                                }
+                                importPassword = ""
                             }) { Text("Replace") }
-                            TextButton(onClick = { pendingImportJson = null }) { Text("Cancel") }
+                            TextButton(onClick = {
+                                pendingImportJson = null
+                                importPassword = ""
+                            }) { Text("Cancel") }
                         }
                     }
                 )
@@ -633,29 +701,47 @@ fun SettingsScreen(
             onDismissRequest = { showPinDialog = false },
             title = { Text("Set PIN") },
             text = {
-                OutlinedTextField(
-                    value = pinValue,
-                    onValueChange = { if (it.length <= 8 && it.all(Char::isDigit)) pinValue = it },
-                    label = { Text("4–8 digit PIN") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true
-                )
+                Column {
+                    OutlinedTextField(
+                        value = pinValue,
+                        onValueChange = { if (it.length <= 8 && it.all(Char::isDigit)) pinValue = it },
+                        label = { Text("4–8 digit PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = pinConfirm,
+                        onValueChange = { if (it.length <= 8 && it.all(Char::isDigit)) pinConfirm = it },
+                        label = { Text("Confirm PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = pinValue.length in 4..8,
+                    enabled = pinValue.length in 4..8 && pinValue == pinConfirm,
                     onClick = {
                         settingsViewModel.setPin(pinValue)
                         lockEnabled = true
                         settingsViewModel.setLockEnabled(true)
                         onPrivacyFlagsChanged()
                         pinValue = ""
+                        pinConfirm = ""
                         showPinDialog = false
                     }
                 ) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { showPinDialog = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = {
+                    showPinDialog = false
+                    pinValue = ""
+                    pinConfirm = ""
+                }) { Text("Cancel") }
+            }
         )
     }
 }

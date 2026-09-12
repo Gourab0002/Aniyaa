@@ -55,7 +55,9 @@ class AniyaaApplication : Application() {
         applicationScope.launch {
             database.migrateFromLegacy(this@AniyaaApplication, prefs)
         }
-        SavedSearchWorker.enqueue(this)
+        applicationScope.launch {
+            SavedSearchWorker.sync(this@AniyaaApplication, savedSearchRepository.getNotifying().isNotEmpty())
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 lockController.onForeground(prefs.lockEnabled, prefs.hasPin, prefs.lockGraceMs)

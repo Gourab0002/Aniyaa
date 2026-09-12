@@ -13,6 +13,7 @@ import com.nyaa.aniyaa.data.model.darkModeByValue
 import com.nyaa.aniyaa.data.model.filterByValue
 import com.nyaa.aniyaa.data.model.sortFieldByValue
 import com.nyaa.aniyaa.data.model.sortOrderByValue
+import android.os.SystemClock
 import com.nyaa.aniyaa.data.network.SiteConfig
 import java.security.SecureRandom
 
@@ -96,6 +97,14 @@ class AppPreferences(context: Context) {
         }
         set(value) = prefs.edit().putInt(KEY_ALERT_HOURS, value.coerceIn(1, 24)).apply()
 
+    var compactCards: Boolean
+        get() = prefs.getBoolean(KEY_COMPACT_CARDS, false)
+        set(value) = prefs.edit().putBoolean(KEY_COMPACT_CARDS, value).apply()
+
+    var biometricUnlockEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BIOMETRIC, true)
+        set(value) = prefs.edit().putBoolean(KEY_BIOMETRIC, value).apply()
+
     var lockGraceMs: Long
         get() {
             val stored = prefs.getLong(KEY_LOCK_GRACE, 15_000L)
@@ -106,9 +115,13 @@ class AppPreferences(context: Context) {
     val hasPin: Boolean
         get() = !prefs.getString(KEY_PIN_HASH, "").isNullOrBlank()
 
-    fun pinLockRemainingMs(now: Long = System.currentTimeMillis()): Long {
-        val until = prefs.getLong(KEY_PIN_LOCK_UNTIL, 0L)
-        return (until - now).coerceAtLeast(0L)
+    fun pinLockRemainingMs(nowElapsed: Long = SystemClock.elapsedRealtime()): Long {
+        val untilElapsed = prefs.getLong(KEY_PIN_LOCK_UNTIL_ELAPSED, 0L)
+        if (untilElapsed > 0L) {
+            return (untilElapsed - nowElapsed).coerceAtLeast(0L)
+        }
+        val untilWall = prefs.getLong(KEY_PIN_LOCK_UNTIL, 0L)
+        return (untilWall - System.currentTimeMillis()).coerceAtLeast(0L)
     }
 
     fun baseUrl(site: CatalogSite): String {
@@ -193,23 +206,28 @@ class AppPreferences(context: Context) {
             .putString(KEY_PIN_ALGO, algorithm)
             .remove(KEY_PIN_FAILURES)
             .remove(KEY_PIN_LOCK_UNTIL)
+            .remove(KEY_PIN_LOCK_UNTIL_ELAPSED)
             .apply()
     }
 
-    fun verifyPin(pin: String, now: Long = System.currentTimeMillis()): Boolean {
-        if (pinLockRemainingMs(now) > 0L) return false
+    fun verifyPin(pin: String, nowElapsed: Long = SystemClock.elapsedRealtime()): Boolean {
+        if (pinLockRemainingMs(nowElapsed) > 0L) return false
         val saltHex = prefs.getString(KEY_PIN_SALT, "").orEmpty()
         val stored = prefs.getString(KEY_PIN_HASH, "").orEmpty()
         if (saltHex.isBlank() || stored.isBlank()) return false
         val salt = saltHex.fromHex()
         val algorithm = prefs.getString(KEY_PIN_ALGO, "").orEmpty().ifBlank { PinHasher.LEGACY_SHA256 }
-        val matches = PinHasher.hash(pin, salt, algorithm) == stored ||
-            (algorithm != PinHasher.LEGACY_SHA256 && PinHasher.hash(pin, salt, PinHasher.LEGACY_SHA256) == stored)
+        val matches = PinHasher.matches(pin, salt, stored, algorithm) ||
+            (algorithm != PinHasher.LEGACY_SHA256 && PinHasher.matches(pin, salt, stored, PinHasher.LEGACY_SHA256))
         if (matches) {
             if (algorithm == PinHasher.LEGACY_SHA256) {
                 setPin(pin)
             } else {
-                prefs.edit().remove(KEY_PIN_FAILURES).remove(KEY_PIN_LOCK_UNTIL).apply()
+                prefs.edit()
+                    .remove(KEY_PIN_FAILURES)
+                    .remove(KEY_PIN_LOCK_UNTIL)
+                    .remove(KEY_PIN_LOCK_UNTIL_ELAPSED)
+                    .apply()
             }
             return true
         }
@@ -217,7 +235,8 @@ class AppPreferences(context: Context) {
         val lockMs = PinHasher.lockoutMillis(failures)
         prefs.edit()
             .putInt(KEY_PIN_FAILURES, failures)
-            .putLong(KEY_PIN_LOCK_UNTIL, if (lockMs > 0L) now + lockMs else 0L)
+            .putLong(KEY_PIN_LOCK_UNTIL_ELAPSED, if (lockMs > 0L) nowElapsed + lockMs else 0L)
+            .remove(KEY_PIN_LOCK_UNTIL)
             .apply()
         return false
     }
@@ -229,6 +248,7 @@ class AppPreferences(context: Context) {
             .remove(KEY_PIN_ALGO)
             .remove(KEY_PIN_FAILURES)
             .remove(KEY_PIN_LOCK_UNTIL)
+            .remove(KEY_PIN_LOCK_UNTIL_ELAPSED)
             .putBoolean(KEY_LOCK_ENABLED, false)
             .apply()
     }
@@ -263,6 +283,9 @@ class AppPreferences(context: Context) {
         private const val KEY_PIN_ALGO = "pin_algo"
         private const val KEY_PIN_FAILURES = "pin_failures"
         private const val KEY_PIN_LOCK_UNTIL = "pin_lock_until"
+        private const val KEY_PIN_LOCK_UNTIL_ELAPSED = "pin_lock_until_elapsed"
+        private const val KEY_COMPACT_CARDS = "compact_cards"
+        private const val KEY_BIOMETRIC = "biometric_unlock"
 
         val ALERT_INTERVAL_HOURS = listOf(1, 3, 6, 12, 24)
         val LOCK_GRACE_OPTIONS = listOf(0L, 15_000L, 60_000L, 300_000L)

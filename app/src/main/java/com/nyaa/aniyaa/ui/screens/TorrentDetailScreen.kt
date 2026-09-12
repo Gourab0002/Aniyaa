@@ -103,8 +103,10 @@ import com.nyaa.aniyaa.util.buildFileTree
 import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.downloadTorrentFile
 import com.nyaa.aniyaa.util.filterFileEntries
+import com.nyaa.aniyaa.util.isSafeHttpUrl
 import com.nyaa.aniyaa.util.openHttpUrl
 import com.nyaa.aniyaa.util.openMagnet
+import com.nyaa.aniyaa.util.parseReleaseTitle
 import com.nyaa.aniyaa.util.shareText as sharePlainText
 import com.nyaa.aniyaa.util.totalSizeLabel
 import com.nyaa.aniyaa.util.torrentShareText
@@ -122,8 +124,9 @@ import kotlinx.coroutines.launch
 fun TorrentDetailScreen(
     torrent: Torrent,
     onNavigateBack: () -> Unit,
-    onOpenUser: (String) -> Unit = {},
+    onOpenUser: (String, com.nyaa.aniyaa.data.model.CatalogSite) -> Unit = { _, _ -> },
     onOpenCatalogLink: (CatalogDeepLink) -> Unit = {},
+    onFollow: (String, String) -> Unit = { _, _ -> },
     bookmarkViewModel: BookmarkViewModel = viewModel(),
     commentsViewModel: CommentsViewModel = viewModel(
         key = torrent.id.ifEmpty { torrent.infoHash }.ifEmpty { torrent.guid }
@@ -146,6 +149,7 @@ fun TorrentDetailScreen(
         displayTorrent.resolvedMagnet()
     }
     val submitter = commentsState.submitter.ifBlank { displayTorrent.submitter }
+    val parsedTitle = remember(displayTorrent.title) { parseReleaseTitle(displayTorrent.title) }
 
     LaunchedEffect(torrent.id) {
         if (torrent.id.isNotBlank()) {
@@ -246,6 +250,25 @@ fun TorrentDetailScreen(
                     }
                 }
             }
+            }
+
+            if (parsedTitle.show != null || parsedTitle.group != null) {
+                item(key = "follow") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        parsedTitle.show?.let { show ->
+                            FilledTonalButton(
+                                onClick = { onFollow(show, show) },
+                                shape = RoundedCornerShape(12.dp)
+                            ) { Text("Follow “$show”") }
+                        }
+                        parsedTitle.group?.let { group ->
+                            OutlinedButton(
+                                onClick = { onFollow(group, group) },
+                                shape = RoundedCornerShape(12.dp)
+                            ) { Text("Follow [$group]") }
+                        }
+                    }
+                }
             }
 
             if (displayTorrent.trusted || displayTorrent.remake) {
@@ -420,7 +443,7 @@ fun TorrentDetailScreen(
                         Spacer(Modifier.height(10.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Spacer(Modifier.height(10.dp))
-                        InfoRow(label = "Uploader", value = submitter, onClick = { onOpenUser(submitter) })
+                        InfoRow(label = "Uploader", value = submitter, onClick = { onOpenUser(submitter, displayTorrent.site) })
                     }
                     if (displayTorrent.infoHash.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
@@ -553,7 +576,7 @@ fun TorrentDetailScreen(
                 ) { _, comment ->
                     CommentItem(
                         comment = comment,
-                        onOpenUser = { if (comment.username.isNotBlank()) onOpenUser(comment.username) },
+                        onOpenUser = { if (comment.username.isNotBlank()) onOpenUser(comment.username, displayTorrent.site) },
                         onOpenPermalink = {
                             val base = displayTorrent.guid.ifBlank { "${SiteConfig.baseUrl(displayTorrent.site)}/view/${displayTorrent.id}" }
                             if (comment.id.isNotBlank()) openUrl("$base#com-${comment.id}")
@@ -669,6 +692,7 @@ private fun MarkdownContent(
                 override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                     builder.linkResolver { view, link ->
                         if (onCatalogLink(link)) return@linkResolver
+                        if (!isSafeHttpUrl(link)) return@linkResolver
                         try {
                             view.context.startActivity(
                                 Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

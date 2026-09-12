@@ -8,15 +8,18 @@ import com.nyaa.aniyaa.data.model.SearchParams
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.model.TorrentPageData
 import com.nyaa.aniyaa.data.network.AppHttpClient
+import com.nyaa.aniyaa.data.network.CatalogMirrors
 import com.nyaa.aniyaa.data.network.HttpException
 import com.nyaa.aniyaa.data.network.SiteConfig
 import com.nyaa.aniyaa.data.network.await
+import com.nyaa.aniyaa.data.network.isFailoverWorthy
 import com.nyaa.aniyaa.data.network.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.CacheControl
 import okhttp3.Request
+import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
@@ -47,7 +50,7 @@ internal fun mergeSearchPages(
     return merged to canLoadMore
 }
 
-internal fun buildSearchUrl(
+fun buildSearchUrl(
     params: SearchParams,
     baseUrl: String = SiteConfig.baseUrl(params.site),
     rss: Boolean = true
@@ -76,17 +79,66 @@ internal fun buildSearchUrl(
 
 private val USER_QUERY_REGEX = Regex("^user:([^\\s]+)", RegexOption.IGNORE_CASE)
 
+internal fun looksLikeRss(contentType: String?, body: ByteArray): Boolean {
+    val ct = contentType.orEmpty().lowercase()
+    if (ct.contains("html")) return false
+    val prefix = body
+        .take(256)
+        .toByteArray()
+        .toString(Charsets.UTF_8)
+        .trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+    val start = prefix.take(80).lowercase()
+    if (ct.contains("xml") || ct.contains("rss") || ct.contains("atom")) {
+        return start.startsWith("<")
+    }
+    return start.startsWith("<?xml") || start.startsWith("<rss") || start.startsWith("<feed")
+}
+
+internal fun mirrorCandidates(site: CatalogSite, current: String): List<String> {
+    val normalizedCurrent = SiteConfig.normalize(current, site)
+    val known = CatalogMirrors.forSite(site).map { SiteConfig.normalize(it, site) }
+    return (listOf(normalizedCurrent) + known).distinctBy { it.lowercase() }
+}
+
 class NyaaRepository(
     private val client: okhttp3.OkHttpClient = AppHttpClient.instance
 ) {
     suspend fun search(params: SearchParams, fromCache: Boolean = false, forceNetwork: Boolean = false): Result<List<Torrent>> {
         return withContext(Dispatchers.IO) {
-            val rssResult = fetchRss(params, fromCache, forceNetwork)
-            if (fromCache) return@withContext rssResult
-            if (rssResult.isSuccess) return@withContext rssResult
-            val htmlResult = fetchHtml(params, forceNetwork)
-            if (htmlResult.isSuccess) htmlResult else rssResult
+            if (fromCache) {
+                return@withContext searchAt(params, SiteConfig.resolvedBaseUrl(params.site), fromCache = true, forceNetwork = false)
+            }
+            var lastFailure: Result<List<Torrent>>? = null
+            val bases = mirrorCandidates(params.site, SiteConfig.resolvedBaseUrl(params.site))
+            for (base in bases) {
+                val result = searchAt(params, base, fromCache = false, forceNetwork = forceNetwork)
+                if (result.isSuccess) {
+                    if (base != SiteConfig.baseUrl(params.site)) {
+                        SiteConfig.setSessionBaseUrl(params.site, base)
+                    }
+                    return@withContext result
+                }
+                lastFailure = result
+                val error = result.exceptionOrNull()
+                if (error?.isFailoverWorthy() != true) {
+                    return@withContext result
+                }
+            }
+            lastFailure ?: Result.failure(Exception("Can't reach the site. It may be blocked — try a mirror in Settings."))
         }
+    }
+
+    private suspend fun searchAt(
+        params: SearchParams,
+        baseUrl: String,
+        fromCache: Boolean,
+        forceNetwork: Boolean
+    ): Result<List<Torrent>> {
+        val rssResult = fetchRss(params, baseUrl, fromCache, forceNetwork)
+        if (fromCache) return rssResult
+        if (rssResult.isSuccess) return rssResult
+        val htmlResult = fetchHtml(params, baseUrl, forceNetwork)
+        return if (htmlResult.isSuccess) htmlResult else rssResult
     }
 
     suspend fun fetchTorrentPageData(
@@ -95,7 +147,7 @@ class NyaaRepository(
     ): Result<TorrentPageData> {
         return withContext(Dispatchers.IO) {
             runCatchingRequest {
-                val baseUrl = SiteConfig.baseUrl(site)
+                val baseUrl = SiteConfig.resolvedBaseUrl(site)
                 val request = requestBuilder("$baseUrl/view/$torrentId").build()
                 client.newCall(request).await().use { response ->
                     if (!response.isSuccessful) {
@@ -141,10 +193,10 @@ class NyaaRepository(
 
     private suspend fun fetchRss(
         params: SearchParams,
+        baseUrl: String,
         fromCache: Boolean,
         forceNetwork: Boolean
     ): Result<List<Torrent>> = runCatchingRequest {
-        val baseUrl = SiteConfig.baseUrl(params.site)
         val request = requestBuilder(buildSearchUrl(params, baseUrl, rss = true))
             .cacheControl(cacheControl(fromCache, forceNetwork))
             .build()
@@ -153,15 +205,20 @@ class NyaaRepository(
                 throw HttpException(response.code, "HTTP ${response.code}: ${response.message}")
             }
             val body = response.body ?: throw IllegalStateException("Empty response")
-            NyaaRssParser.parse(body.byteStream()).map { it.copy(site = params.site) }
+            val bytes = body.bytes()
+            val contentType = response.header("Content-Type")
+            if (!looksLikeRss(contentType, bytes)) {
+                throw HttpException(response.code, "HTTP ${response.code}: catalog returned a web page instead of RSS")
+            }
+            NyaaRssParser.parse(ByteArrayInputStream(bytes)).map { it.copy(site = params.site) }
         }
     }
 
     private suspend fun fetchHtml(
         params: SearchParams,
+        baseUrl: String,
         forceNetwork: Boolean
     ): Result<List<Torrent>> = runCatchingRequest {
-        val baseUrl = SiteConfig.baseUrl(params.site)
         val request = requestBuilder(buildSearchUrl(params, baseUrl, rss = false))
             .cacheControl(cacheControl(fromCache = false, forceNetwork = forceNetwork))
             .header("Accept", "text/html")

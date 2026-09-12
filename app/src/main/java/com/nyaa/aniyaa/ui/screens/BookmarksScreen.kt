@@ -62,7 +62,10 @@ import com.nyaa.aniyaa.data.model.CatalogSite
 import com.nyaa.aniyaa.data.model.Torrent
 import com.nyaa.aniyaa.data.prefs.AppPreferences
 import com.nyaa.aniyaa.ui.viewmodel.BookmarkViewModel
+import com.nyaa.aniyaa.util.copyText
 import com.nyaa.aniyaa.util.openMagnet
+import com.nyaa.aniyaa.util.shareText
+import com.nyaa.aniyaa.util.torrentShareText
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -274,6 +277,15 @@ fun BookmarksScreen(
                                     onMagnet = {
                                         val error = openMagnet(context, torrent.resolvedMagnet(), prefs.preferredTorrentPackage)
                                         if (error != null) scope.launch { snackbarHostState.showSnackbar(error) }
+                                    },
+                                    onCopyMagnet = {
+                                        copyText(context, "Magnet Link", torrent.resolvedMagnet())
+                                        scope.launch { snackbarHostState.showSnackbar("Copied magnet") }
+                                    },
+                                    onShare = {
+                                        shareText(context, torrentShareText(torrent))?.let { msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
                                     },
                                     onToggleBookmark = {
                                         bookmarkViewModel.removeBookmark(torrent)

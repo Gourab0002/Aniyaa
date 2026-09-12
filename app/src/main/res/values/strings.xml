@@ -24,4 +24,13 @@
     <string name="apply">Apply</string>
     <string name="reset">Reset</string>
     <string name="search">Search</string>
+    <string name="save_search">Save this search</string>
+    <string name="try_a_mirror">Try a mirror</string>
+    <string name="retry">Retry</string>
+    <string name="select">Select</string>
+    <string name="compact_cards">Compact result cards</string>
+    <string name="copy_rss">Copy RSS URL</string>
+    <string name="check_now">Check now</string>
+    <string name="remove_pin">Remove PIN</string>
+    <string name="confirm_pin">Confirm PIN</string>
 </resources>

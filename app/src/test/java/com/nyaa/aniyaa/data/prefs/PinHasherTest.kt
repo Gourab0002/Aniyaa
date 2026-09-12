@@ -24,6 +24,15 @@ class PinHasherTest {
     }
 
     @Test
+    fun matches_isConstantTimeEquality() {
+        val salt = ByteArray(16) { it.toByte() }
+        val algorithm = PinHasher.preferredAlgorithm()
+        val stored = PinHasher.hash("1234", salt, algorithm)
+        assertTrue(PinHasher.matches("1234", salt, stored, algorithm))
+        assertTrue(!PinHasher.matches("1235", salt, stored, algorithm))
+    }
+
+    @Test
     fun lockout_startsAfterFiveFailures() {
         assertEquals(0L, PinHasher.lockoutMillis(4))
         assertEquals(30_000L, PinHasher.lockoutMillis(5))

@@ -73,6 +73,14 @@ class SavedSearchWorker(
         private const val UNIQUE_NAME = "saved-search-alerts"
         private const val CHANNEL_ID = "saved_searches"
 
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME)
+        }
+
+        fun sync(context: Context, hasNotifying: Boolean, intervalHours: Int? = null) {
+            if (hasNotifying) enqueue(context, intervalHours, replace = true) else cancel(context)
+        }
+
         fun enqueue(context: Context, intervalHours: Int? = null, replace: Boolean = false) {
             val hours = (intervalHours
                 ?: (context.applicationContext as? AniyaaApplication)?.prefs?.savedSearchIntervalHours
@@ -116,7 +124,7 @@ class SavedSearchWorker(
             }
             val pending = PendingIntent.getActivity(
                 context,
-                savedId.toInt(),
+                savedId.hashCode(),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -132,7 +140,7 @@ class SavedSearchWorker(
                 .setAutoCancel(true)
                 .build()
             try {
-                NotificationManagerCompat.from(context).notify(1000 + savedId.toInt(), notification)
+                NotificationManagerCompat.from(context).notify(1000 + savedId.hashCode(), notification)
             } catch (_: SecurityException) {
             }
         }

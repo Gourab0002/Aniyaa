@@ -21,6 +21,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -97,6 +99,7 @@ import com.nyaa.aniyaa.ui.viewmodel.SearchViewModel
 import com.nyaa.aniyaa.util.HighRefreshRate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 import java.net.URLDecoder
@@ -133,10 +136,11 @@ class MainActivity : AppCompatActivity() {
             val locked by app.lockController.locked.collectAsStateWithLifecycle()
             var pinError by remember { mutableStateOf<String?>(null) }
             var lockRemainingMs by remember { mutableStateOf(0L) }
-            val biometricAvailable = remember {
-                BiometricManager.from(this).canAuthenticate(
-                    BiometricManager.Authenticators.BIOMETRIC_WEAK
-                ) == BiometricManager.BIOMETRIC_SUCCESS
+            val biometricAvailable = remember(prefs.biometricUnlockEnabled) {
+                prefs.biometricUnlockEnabled &&
+                    BiometricManager.from(this).canAuthenticate(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG
+                    ) == BiometricManager.BIOMETRIC_SUCCESS
             }
 
             AniyaaTheme(darkMode = darkMode, themeIndex = themeIndex) {
@@ -154,31 +158,6 @@ class MainActivity : AppCompatActivity() {
                             showOnboarding = true
                         }
                     }
-                    AniyaaApp(
-                        currentThemeIndex = themeIndex,
-                        darkMode = darkMode,
-                        pendingDeepLink = incomingLink.value,
-                        onDeepLinkConsumed = { incomingLink.value = null },
-                        onThemeSelected = { index ->
-                            themeIndex = index
-                            prefs.themeIndex = index
-                        },
-                        onDarkModeSelected = { mode ->
-                            darkMode = mode
-                            prefs.darkMode = mode
-                        },
-                        onPrivacyFlagsChanged = { applyPrivacyFlags() }
-                    )
-                    if (showOnboarding && !(locked && prefs.lockEnabled && prefs.hasPin)) {
-                        OnboardingScreen(
-                            preferredTorrentPackage = prefs.preferredTorrentPackage,
-                            onPreferredTorrentPackage = { prefs.preferredTorrentPackage = it },
-                            onFinished = {
-                                prefs.onboardingComplete = true
-                                showOnboarding = false
-                            }
-                        )
-                    }
                     if (locked && prefs.lockEnabled && prefs.hasPin) {
                         LaunchedEffect(locked, lockRemainingMs) {
                             while (lockRemainingMs > 0L) {
@@ -191,21 +170,52 @@ class MainActivity : AppCompatActivity() {
                             lockRemainingMs = lockRemainingMs,
                             biometricAvailable = biometricAvailable,
                             onUnlockWithPin = { pin ->
-                                val remaining = prefs.pinLockRemainingMs()
-                                if (remaining > 0L) {
-                                    lockRemainingMs = remaining
-                                    pinError = "Too many attempts"
-                                } else if (prefs.verifyPin(pin)) {
-                                    pinError = null
-                                    lockRemainingMs = 0L
-                                    app.lockController.unlock()
-                                } else {
-                                    lockRemainingMs = prefs.pinLockRemainingMs()
-                                    pinError = if (lockRemainingMs > 0L) "Too many attempts" else "Wrong PIN"
+                                lifecycleScope.launch {
+                                    val remaining = withContext(Dispatchers.Default) { prefs.pinLockRemainingMs() }
+                                    if (remaining > 0L) {
+                                        lockRemainingMs = remaining
+                                        pinError = "Too many attempts"
+                                        return@launch
+                                    }
+                                    val ok = withContext(Dispatchers.Default) { prefs.verifyPin(pin) }
+                                    if (ok) {
+                                        pinError = null
+                                        lockRemainingMs = 0L
+                                        app.lockController.unlock()
+                                    } else {
+                                        lockRemainingMs = prefs.pinLockRemainingMs()
+                                        pinError = if (lockRemainingMs > 0L) "Too many attempts" else "Wrong PIN"
+                                    }
                                 }
                             },
                             onUnlockWithBiometric = { promptBiometric { pinError = null; lockRemainingMs = 0L } }
                         )
+                    } else {
+                        AniyaaApp(
+                            currentThemeIndex = themeIndex,
+                            darkMode = darkMode,
+                            pendingDeepLink = incomingLink.value,
+                            onDeepLinkConsumed = { incomingLink.value = null },
+                            onThemeSelected = { index ->
+                                themeIndex = index
+                                prefs.themeIndex = index
+                            },
+                            onDarkModeSelected = { mode ->
+                                darkMode = mode
+                                prefs.darkMode = mode
+                            },
+                            onPrivacyFlagsChanged = { applyPrivacyFlags() }
+                        )
+                        if (showOnboarding) {
+                            OnboardingScreen(
+                                preferredTorrentPackage = prefs.preferredTorrentPackage,
+                                onPreferredTorrentPackage = { prefs.preferredTorrentPackage = it },
+                                onFinished = {
+                                    prefs.onboardingComplete = true
+                                    showOnboarding = false
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -254,6 +264,7 @@ class MainActivity : AppCompatActivity() {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock Aniyaa")
             .setNegativeButtonText("Use PIN")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
         prompt.authenticate(info)
     }
@@ -310,9 +321,23 @@ fun AniyaaApp(
     val showBottomBar = currentRoute?.startsWith("detail") != true
     val prefs = AniyaaApplication.instance.prefs
     var pendingNsfwLink by remember { mutableStateOf<CatalogDeepLink?>(null) }
+    val pendingNsfwParams by searchViewModel.pendingNsfwParams.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    fun openUser(username: String) {
-        searchViewModel.applyParams(SearchParams(query = "user:$username"))
+    LaunchedEffect(expanded) {
+        val torrent = selectedTorrent
+        val onDetail = currentRoute?.startsWith("detail") == true
+        if (expanded && onDetail) {
+            navController.navigateUp()
+        } else if (!expanded && torrent != null && !onDetail) {
+            navController.navigate("detail/${torrent.site.id}/${encodeNavId(torrent.navId())}") {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    fun openUser(username: String, site: CatalogSite) {
+        searchViewModel.applyParams(SearchParams(query = "user:$username", site = site))
         selectedTorrent = null
         navController.navigate("search") {
             popUpTo("search") { inclusive = true }
@@ -381,11 +406,14 @@ fun AniyaaApp(
         applyCatalogLink(link)
     }
 
-    if (pendingNsfwLink != null) {
+    if (pendingNsfwLink != null || pendingNsfwParams != null) {
         AlertDialog(
-            onDismissRequest = { pendingNsfwLink = null },
+            onDismissRequest = {
+                pendingNsfwLink = null
+                searchViewModel.dismissPendingNsfw()
+            },
             title = { Text("Sukebei is 18+") },
-            text = { Text("This link opens Sukebei, which lists adult content. You must be 18 or older to continue.") },
+            text = { Text("This opens Sukebei, which lists adult content. You must be 18 or older to continue.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -394,12 +422,18 @@ fun AniyaaApp(
                         if (link != null) {
                             prefs.sukebeiEnabled = true
                             applyCatalogLink(link.copy(requiresNsfw = false))
+                        } else {
+                            searchViewModel.confirmPendingNsfw()
+                            goToSearch()
                         }
                     }
                 ) { Text("I am 18+") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingNsfwLink = null }) { Text("Cancel") }
+                TextButton(onClick = {
+                    pendingNsfwLink = null
+                    searchViewModel.dismissPendingNsfw()
+                }) { Text("Cancel") }
             }
         )
     }
@@ -504,6 +538,7 @@ fun AniyaaApp(
                 composable("search") {
                     SearchScreen(
                         onTorrentClick = openTorrent,
+                        onOpenSettings = { navigateTab("settings") },
                         searchViewModel = searchViewModel,
                         searchHistoryViewModel = searchHistoryViewModel,
                         bookmarkViewModel = bookmarkViewModel
@@ -557,6 +592,15 @@ fun AniyaaApp(
                         onNavigateBack = { navController.navigateUp() },
                         onOpenUser = ::openUser,
                         onOpenCatalogLink = { applyCatalogLink(it) },
+                        onFollow = { name, query, followSite ->
+                            scope.launch {
+                                searchViewModel.saveSearch(
+                                    SearchParams(query = query, site = followSite),
+                                    name,
+                                    notify = false
+                                )
+                            }
+                        },
                         bookmarkViewModel = bookmarkViewModel,
                         searchHistoryViewModel = searchHistoryViewModel
                     )
@@ -573,6 +617,15 @@ fun AniyaaApp(
                             onNavigateBack = { selectedTorrent = null },
                             onOpenUser = ::openUser,
                             onOpenCatalogLink = { applyCatalogLink(it) },
+                            onFollow = { name, query, followSite ->
+                                scope.launch {
+                                    searchViewModel.saveSearch(
+                                        SearchParams(query = query, site = followSite),
+                                        name,
+                                        notify = false
+                                    )
+                                }
+                            },
                             bookmarkViewModel = bookmarkViewModel,
                             searchHistoryViewModel = searchHistoryViewModel
                         )
@@ -591,17 +644,19 @@ private fun TorrentDetailGate(
     site: CatalogSite,
     cached: Torrent?,
     onNavigateBack: () -> Unit,
-    onOpenUser: (String) -> Unit,
+    onOpenUser: (String, CatalogSite) -> Unit,
     onOpenCatalogLink: (CatalogDeepLink) -> Unit,
+    onFollow: (String, String, CatalogSite) -> Unit = { _, _, _ -> },
     bookmarkViewModel: BookmarkViewModel,
     searchHistoryViewModel: SearchHistoryViewModel
 ) {
     var torrent by remember(navId, site) { mutableStateOf(cached) }
     var loading by remember(navId, site) { mutableStateOf(cached == null && navId.isNotBlank() && navId != "unknown") }
     var failed by remember(navId, site) { mutableStateOf(false) }
+    var retryTick by remember(navId, site) { mutableIntStateOf(0) }
 
-    LaunchedEffect(navId, site, cached) {
-        if (cached != null) {
+    LaunchedEffect(navId, site, cached, retryTick) {
+        if (cached != null && retryTick == 0) {
             torrent = cached
             loading = false
             return@LaunchedEffect
@@ -612,6 +667,7 @@ private fun TorrentDetailGate(
             return@LaunchedEffect
         }
         loading = true
+        failed = false
         AniyaaApplication.instance.nyaaRepository.fetchTorrent(navId, site = site)
             .onSuccess {
                 torrent = it
@@ -634,13 +690,17 @@ private fun TorrentDetailGate(
                 onNavigateBack = onNavigateBack,
                 onOpenUser = onOpenUser,
                 onOpenCatalogLink = onOpenCatalogLink,
+                onFollow = { name, query -> onFollow(name, query, torrent!!.site) },
                 bookmarkViewModel = bookmarkViewModel
             )
         }
         loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        else -> MissingTorrentScreen(onNavigateBack = onNavigateBack)
+        else -> MissingTorrentScreen(
+            onNavigateBack = onNavigateBack,
+            onRetry = { retryTick++ }
+        )
     }
 }
 
@@ -660,7 +720,7 @@ private fun EmptyDetailPane() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MissingTorrentScreen(onNavigateBack: () -> Unit) {
+private fun MissingTorrentScreen(onNavigateBack: () -> Unit, onRetry: () -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -679,11 +739,14 @@ private fun MissingTorrentScreen(onNavigateBack: () -> Unit) {
                 .padding(padding),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "This torrent is no longer available",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "This torrent is no longer available",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(onClick = onRetry) { Text("Retry") }
+            }
         }
     }
 }
